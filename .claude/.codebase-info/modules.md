@@ -1,6 +1,6 @@
 # Modules and Packages
 
-*Last Updated: 2026-10-10*
+*Last Updated: 2026-10-11*
 
 There is one Gradle module, `:app`. The packages below are under `app/src/main/java/com/akane/voltwise/`, and
 unit tests mirror them under `app/src/test/java/com/akane/voltwise/`.
@@ -44,6 +44,6 @@ unit tests mirror them under `app/src/test/java/com/akane/voltwise/`.
 | Insights | `InsightsViewModel` | `DefaultInsightsRepository` (`InsightsRepository.kt`) |
 | Finding details | `FindingDetailsViewModel` (SavedStateHandle `key`) | `DefaultInsightsRepository` + application scope |
 | Health | `HealthViewModel` | `DefaultHealthRepository` |
-| Settings | `SettingsViewModel` | `KmpSettingsStore` (over the settings `DataStore`; also `retentionUnset` from the raw keys) |
+| Settings | `SettingsViewModel` | `KmpSettingsStore` (over the settings `DataStore`; also `retentionUnset` via `settings/Retention.kt` `resolveRetention`) |
 | Settings › Data | `DataViewModel` (SavedStateHandle) | `DefaultDataRepository` |
 | Settings › Status | `StatusViewModel` | `DefaultStatusRepository` |

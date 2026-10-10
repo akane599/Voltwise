@@ -1,6 +1,6 @@
 # Privileged Shell and Per-App Stats
 
-*Last Updated: 2026-10-10*
+*Last Updated: 2026-10-11*
 
 Per-app battery use needs `dumpsys batterystats`, which normal apps can't run. Everything that needs
 privilege goes through one path. Paths below are under `app/src/main/java/com/akane/voltwise/battery/`.
@@ -30,7 +30,7 @@ BatteryStatsBinaryOutput.decode → BatteryStatsProtoParser (util/BatteryStatsPr
 | `util/PrivilegeChecker.kt` | Detects the ADB-granted `DUMP` permission. |
 | `apps/AppInfoRepository.kt`, `apps/AppInfoCache.kt` | Labels and icons for UIDs/packages (needs `QUERY_ALL_PACKAGES`); icons are dropped on trim memory. |
 | `apps/AppUsageSnapshot.kt`, `apps/AppUsageDelta.kt`, `apps/TopApps.kt` | Snapshot model, the BASELINE→END delta (in a DELTA with a modern baseline — any non-null extended counter — a counter that is non-null in some row of either dump is observed: null on a side counts as 0, so an app with no records of that kind gets 0, while end null with a non-null baseline stays unknown; a counter no row reports, or an all-null pre-upgrade baseline, stays unknown), and the top-N plus "others" ranking. Shared UIDs: `UidIdentity` / `AppPowerStats.identity()`. |
-| `apps/SessionSnapshotCollector.kt`, `apps/SessionSnapshotStore.kt` | Per-discharge-session breakdown (BASELINE on discharge open, END at plug-in, abandoned → FAILED), stored via `RoomSessionSnapshotStore` in `app_snapshots`, `app_snapshot_uids` and `session_app_usage`. |
+| `apps/SessionSnapshotCollector.kt`, `apps/SessionSnapshotStore.kt` | Per-discharge-session breakdown (BASELINE on discharge open, END at plug-in, abandoned → FAILED), stored via `RoomSessionSnapshotStore` in `app_snapshots`, `app_snapshot_uids` and `session_app_usage`. An incomplete dump (a UID with counters but no `power_use_item`, or a rejected record) skips the baseline or stores END non-comparable (`captureStartMs = null`) and records `DiagnosticCode.ADVANCED_INCOMPLETE` (diagnostic report only; no Status issue). |
 | `viewmodel/ShizukuState.kt` | UI-facing Shizuku state (`running`, `granted`, `blocked`). A blocked permission shows an Open Shizuku action instead of Allow (Apps, AppDetails, Status). |
 
 ## Gotchas

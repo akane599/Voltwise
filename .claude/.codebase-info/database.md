@@ -1,6 +1,6 @@
 # Database
 
-*Last Updated: 2026-10-10*
+*Last Updated: 2026-10-11*
 
 Room database `battery.db`, **version 9**, `exportSchema = true`.
 - Definition and migrations: `app/src/main/java/com/akane/voltwise/battery/data/db/BatteryDatabase.kt`
@@ -58,7 +58,7 @@ There's no destructive fallback: every version needs an explicit `MIGRATION_a_b`
 
 ## Other persistence
 - Settings: DataStore `batstats_settings` via kmp-settings (`settings/`; schema v3, `SettingsMigrations`). A corrupt file is
-  replaced with only the `SETTINGS_RECOVERED` marker (`SettingsDataStore.kt`), which pauses history age cleanup until a retention is chosen again; meanwhile Settings shows the retention as "not set" (`KmpSettingsStore.retentionUnset`).
+  replaced with only the `SETTINGS_RECOVERED` marker (`SettingsDataStore.kt`), which pauses history age cleanup until a retention is chosen again; meanwhile Settings shows the retention as "not set" (`KmpSettingsStore.retentionUnset`). One resolver, `settings/Retention.kt` `resolveRetention(prefs)` → `Days` / `Forever` / `Unset`, serves the settings migration, age cleanup and Settings; an out-of-range `data_retention_index` resolves `Unset` (cleanup paused, shown "not set").
 - SharedPreferences: `CalibrationStore.PREFS_NAME` (calibration) and `SamplerState.PREFS_NAME` (sampler
   state), both wrapped in `SharedPreferencesStore` / `KeyValueStore` (`data/sampling/KeyValueStore.kt`).
 - Export/import: `data/ExportImport.kt` (`BatteryExport` format 5 = `HISTORY_FORMAT_VERSION`, carries portable battery measurements and excludes local per-app/capture evidence; formats 1–4 still import) and
@@ -67,7 +67,7 @@ There's no destructive fallback: every version needs an explicit `MIGRATION_a_b`
   clock (`SamplerState.RetentionClock`: wall, elapsedRealtime, `BOOT_COUNT`) lives in the non-backed-up `sampler_state`
   prefs, never regresses and advances only by monotonic time, so forward clock jumps, RTC fallbacks and Auto Backup restores
   can't purge recent rows. The reference wall time is the newest local sample (`BatteryDao.lastLocalSample`, skipping `import:` sources), so
-  imported rows can't seed or advance it. An absent retention key means the 90-day default unless `SETTINGS_RECOVERED` is set.
+  imported rows can't seed or advance it. An absent retention key means the 90-day default unless `SETTINGS_RECOVERED` is set (`resolveRetention`).
 - Size retention: `data/HistoryPolicy.kt`; `boundStorage` trims to
   `HistoryLimits.SAMPLE_TRIM_TARGET`/`SESSION_TRIM_TARGET` (cap − 200) every `CLEANUP_SAMPLE_INTERVAL` inserts
   (`data/HistoryFiles.kt`), so tables may sit slightly over `MAX_SAMPLES`/`MAX_SESSIONS` between trims; import
