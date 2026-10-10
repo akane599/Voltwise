@@ -255,7 +255,9 @@ with sqlite3.connect(':memory:') as db:
             db.execute(index['createSql'].replace('${TABLE_NAME}', entity['tableName']))
     for status in ('PREPARED', 'APPLIED', 'UNKNOWN', 'REVERTED', 'FAILED', 'ONE_SHOT', 'FUTURE_STATUS'):
         for at in (99, 100, 101):
-            db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt) VALUES('f','FORCE_STOP',0,?,1,?)", (status, at))
+            db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt) VALUES('f','RESTRICT_BACKGROUND',0,?,1,?)", (status, at))
+    for at in (99, 100, 101):
+        db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt) VALUES('uncertain_force_stop','FORCE_STOP',0,'UNKNOWN',1,?)", (at,))
     # A recently undone action is not old just because its application was old.
     db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt,appliedAt,revertedAt) VALUES('recent_undo','RESTRICT_BACKGROUND',0,'REVERTED',1,1,2,100)")
     db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt,appliedAt) VALUES('recent_one_shot','FORCE_STOP',0,'ONE_SHOT',1,1,100)")
@@ -270,7 +272,12 @@ with sqlite3.connect(':memory:') as db:
     expected = {(status, at) for status in ('PREPARED', 'APPLIED', 'UNKNOWN', 'REVERTED', 'FAILED', 'ONE_SHOT', 'FUTURE_STATUS')
                 for at in (99, 100, 101) if at >= 100 or status not in ('REVERTED', 'FAILED', 'ONE_SHOT')}
     actual = {(r['status'], r['createdAt']) for r in db.execute(query('actionsOnce')) if r['findingKey'] == 'f'}
-    assert actual == expected, 'Retention must purge only expired terminal actions, keeping Undo/reconciliation authority and cutoff boundary'
+    assert actual == expected, 'Retention must purge only expired terminal reversible actions, keeping Undo/reconciliation authority and cutoff boundary'
+    assert ('UNKNOWN', 99) in actual, 'Retention must preserve old reversible UNKNOWN actions as reconciliation authority'
+    force_stop_times = {r['createdAt'] for r in db.execute(query('actionsOnce')) if r['findingKey'] == 'uncertain_force_stop'}
+    assert 99 not in force_stop_times, 'Retention must purge old FORCE_STOP UNKNOWN actions without Undo/reconciliation authority'
+    assert 100 in force_stop_times, 'Retention must preserve FORCE_STOP UNKNOWN actions exactly at the cutoff'
+    assert 101 in force_stop_times, 'Retention must preserve recent FORCE_STOP UNKNOWN attempts'
     assert db.execute("SELECT COUNT(*) FROM insight_actions WHERE findingKey LIKE 'recent_%'").fetchone()[0] == 2, 'Retention discarded a recently completed terminal action'
     assert [r['key'] for r in db.execute(query('findingsOnce'))] == ['100', '101'], 'Repository retention must purge findings by lastSeenAt with an exclusive cutoff'
     for table in ('session_device_wakers', 'snapshot_device_wakers'):
@@ -281,4 +288,4 @@ with sqlite3.connect(':memory:') as db:
     assert [tuple(r) for r in db.execute(query('actionsOnce'))] == actions_before, 'Clear history must preserve all insight actions byte-for-byte'
     for table in ('charge_sessions', 'app_snapshots', 'session_device_wakers', 'snapshot_device_wakers'):
         assert db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0] == 0, 'Clear history must delete history and cascade both waker tables'
-print('PASS history orchestration: Clear deletes findings/wakers but preserves actions; retention keeps PREPARED/APPLIED/UNKNOWN/future statuses and cutoff boundaries')
+print('PASS history orchestration: Clear deletes findings/wakers but preserves actions; retention preserves reversible authority/future statuses and cutoff boundaries, purges expired FORCE_STOP UNKNOWN attempts')

@@ -352,8 +352,11 @@ interface InsightDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAction(entity: InsightActionEntity): Long
 
-    /** Never delete Undo/reconciliation authority, including unrecognized future statuses. */
-    @Query("DELETE FROM insight_actions WHERE status IN ('REVERTED', 'FAILED', 'ONE_SHOT') AND COALESCE(revertedAt, appliedAt, createdAt) < :ms")
+    /**
+     * Purge expired terminal actions and uncertain force-stops, which have no Undo/readback authority.
+     * Preserve reversible Undo/reconciliation authority and unrecognized future statuses.
+     */
+    @Query("DELETE FROM insight_actions WHERE (status IN ('REVERTED', 'FAILED', 'ONE_SHOT') OR (type = 'FORCE_STOP' AND status = 'UNKNOWN')) AND COALESCE(revertedAt, appliedAt, createdAt) < :ms")
     suspend fun purgeTerminalActionsBefore(ms: Long)
 
     @Update
