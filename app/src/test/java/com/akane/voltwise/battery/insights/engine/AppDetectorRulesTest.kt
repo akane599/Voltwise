@@ -1,5 +1,9 @@
 package com.akane.voltwise.battery.insights.engine
 
+import com.akane.voltwise.battery.apps.AppUsageRow
+import com.akane.voltwise.battery.apps.collapseByUid
+import com.akane.voltwise.battery.insights.engine.detectors.app.StuckWakelock
+import com.akane.voltwise.battery.insights.model.Severity
 import com.akane.voltwise.battery.insights.engine.detectors.app.AppContext
 import com.akane.voltwise.battery.insights.engine.detectors.app.AppDrainAnomaly
 import com.akane.voltwise.battery.insights.engine.detectors.app.BackgroundRunaway
@@ -283,6 +287,48 @@ class AppDetectorRulesTest {
             assertEquals(0.0, point.baselineLow!!, 0.0)
             assertEquals(200.0 + 3.0 * 1.4826 * 100.0, point.baselineHigh!!, 1e-9)
         }
+    }
+
+    @Test fun wakelockOnePointFiveToOnePointEightIsNotAnomaly() = assertQuietWakelock(1.5, 1.8)
+
+    @Test fun wakelockPointNineToOnePointOneIsNotAnomaly() = assertQuietWakelock(0.9, 1.1)
+
+    private fun assertQuietWakelock(baseline: Double, current: Double) {
+        val ctx = appAnomalyContext(Metric.PARTIAL_WAKELOCK_BG_SHARE, List(12) { baseline } + current)
+        assertTrue("An overlapping timer share must retain its median scale above one",
+            StuckWakelock.detect(ctx).isEmpty())
+    }
+
+    @Test fun shareNearOneDoesNotBypassHighZThreshold() {
+        for (metric in listOf(Metric.PARTIAL_WAKELOCK_BG_SHARE, Metric.BG_TIME_SHARE)) {
+            for (observed in listOf(0.998, 1.0, 1.002)) {
+                val ctx = appAnomalyContext(metric, List(12) { 0.4 } + observed)
+                val type = if (metric == Metric.BG_TIME_SHARE) FindingType.BACKGROUND_RUNAWAY else FindingType.STUCK_WAKELOCK
+                val anomaly = ctx.anomaly(type, metric, 0.2)!!
+                assertEquals(Severity.MEDIUM, ctx.finding(type, anomaly).severity)
+            }
+        }
+    }
+
+    @Test fun highSeverityUsesFivePointFiveZWithNoSaturationShortcut() {
+        val type = FindingType.APP_DRAIN_ANOMALY
+        for ((observed, severity) in listOf(254.999 to Severity.MEDIUM, 255.0 to Severity.HIGH)) {
+            val ctx = appAnomalyContext(Metric.POWER_MAH_PER_H, List(12) { 90.0 } + observed)
+            val anomaly = ctx.anomaly(type, Metric.POWER_MAH_PER_H, 10.0)!!
+            assertEquals(severity, ctx.finding(type, anomaly).severity)
+        }
+    }
+
+    @Test fun sharedUidBackgroundTimersCanExceedWindowDuration() {
+        val timer = HOUR * 3 / 4
+        val combined = listOf(
+            AppUsageRow(UID, APP, 1.0, backgroundTimeMs = timer),
+            AppUsageRow(UID, "example.shared", 1.0, backgroundTimeMs = timer),
+        ).collapseByUid().single()
+        assertEquals(HOUR * 3 / 2, combined.backgroundTimeMs)
+        val session = session(0)
+        val ctx = context(inputs(listOf(session), listOf(row(session.id).copy(bgMs = combined.backgroundTimeMs))))
+        assertEquals(1.5, ctx.value(Metric.BG_TIME_SHARE)!!, 0.0)
     }
 
     @Test fun badFeedbackCannotWeakenOrPoisonThresholds() {

@@ -103,7 +103,8 @@ data class AppContext(val inputs: InsightInputs, val windows: List<EligibleAppWi
         const val HIGH_CONFIDENCE_SESSIONS = 12
         const val HIGH_CONFIDENCE_CENSORING = 0.10
         const val MEDIUM_CONFIDENCE_CENSORING = 0.25
-        const val HIGH_SEVERITY_Z = 6.0
+        // Fixed-seed noisy 4x controls calibrate severity without changing the firing scale.
+        const val HIGH_SEVERITY_Z = 5.5
         const val SCORE_PER_Z = 10.0
         const val MAX_SCORE = 100.0
     }
