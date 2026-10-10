@@ -17,6 +17,18 @@ class CommandPolicyTest {
         )) assertFalse(command, CommandPolicy.allows(command.split(' ')))
     }
 
+    @Test fun policyRejectsChargedCheckinDiagnostic() {
+        assertFalse(CommandPolicy.allows(listOf("dumpsys", "batterystats", "-c", "--charged")))
+    }
+
+    @Test fun policyRejectsBatteryDiagnostic() {
+        assertFalse(CommandPolicy.allows(listOf("dumpsys", "battery")))
+    }
+
+    @Test fun policyRejectsDeviceIdleDiagnostic() {
+        assertFalse(CommandPolicy.allows(listOf("dumpsys", "deviceidle")))
+    }
+
     @Test fun everyTemplateRoundTripsWithExactTokens() {
         assertEquals(listOf("active", "working_set", "frequent", "rare", "restricted"), StandbyBucket.supported(30).map { it.token })
         assertEquals(listOf("allow", "ignore", "default", "deny", "foreground"), AppOpMode.entries.map { it.token })
@@ -26,7 +38,6 @@ class CommandPolicyTest {
             RemoveDozeWhitelist(pkg) to "cmd deviceidle whitelist -$pkg",
             AddDozeWhitelist(pkg) to "cmd deviceidle whitelist +$pkg",
             ForceStop(pkg) to "am force-stop --user 0 $pkg",
-            DumpDeviceIdle to "dumpsys deviceidle",
         )
         for (bucket in StandbyBucket.supported(30)) {
             commands += SetStandbyBucket(pkg, bucket) to "am set-standby-bucket --user 0 $pkg ${bucket.token}"
@@ -46,8 +57,6 @@ class CommandPolicyTest {
                 assertFalse(CommandPolicy.allows(command.argv.toMutableList().apply { this[index] = "" }))
             }
         }
-        assertTrue(CommandPolicy.allows("dumpsys battery".split(' ')))
-        assertTrue(CommandPolicy.allows("dumpsys batterystats -c --charged".split(' ')))
     }
 
     @Test fun invalidPackagesAreRejectedByEveryConstructorAndEveryTemplate() {
@@ -159,7 +168,6 @@ class CommandPolicyTest {
             for (op in BackgroundOp.entries) assertTrue(CommandPolicy.allows(GetBackgroundOp(target, op).argv))
         }
         assertTrue(CommandPolicy.allows(ListDozeWhitelist.argv))
-        assertTrue(CommandPolicy.allows(DumpDeviceIdle.argv))
     }
 
     @Test fun sdkGatesOnlyWritableBucketsAndChoosesBackgroundOp() {

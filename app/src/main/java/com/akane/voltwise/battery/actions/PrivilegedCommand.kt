@@ -40,7 +40,7 @@ enum class AppOpMode(val token: String) {
 sealed interface PrivilegedCommand {
     val argv: List<String>
     val executionPolicy: ExecutionPolicy get() = when (this) {
-        is GetStandbyBucket, is GetBackgroundOp, ListDozeWhitelist, DumpDeviceIdle -> ExecutionPolicy.READ_ONLY
+        is GetStandbyBucket, is GetBackgroundOp, ListDozeWhitelist -> ExecutionPolicy.READ_ONLY
         is SetStandbyBucket, is SetBackgroundOp, is RemoveDozeWhitelist, is AddDozeWhitelist,
         is ForceStop -> ExecutionPolicy.MUTATION
     }
@@ -88,10 +88,6 @@ sealed interface PrivilegedCommand {
     data class ForceStop(val pkg: String) : PrivilegedCommand {
         init { requirePackage(pkg) }
         override val argv get() = listOf("am", "force-stop", "--user", "0", pkg)
-    }
-
-    data object DumpDeviceIdle : PrivilegedCommand {
-        override val argv get() = listOf("dumpsys", "deviceidle")
     }
 }
 

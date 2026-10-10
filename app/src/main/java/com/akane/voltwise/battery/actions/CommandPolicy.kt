@@ -19,9 +19,8 @@ object CommandPolicy {
     fun allows(argv: List<String>): Boolean {
         if (argv.isEmpty() || argv.any { it.isEmpty() }) return false
         return when (argv.first()) {
-            "dumpsys" -> argv == listOf("dumpsys", "batterystats", "-c", "--charged") ||
-                argv == BatteryStatsBinaryOutput.ARGV ||
-                argv == listOf("dumpsys", "battery") || argv == listOf("dumpsys", "deviceidle")
+            // whittle: only the charged proto diagnostic; extend only for an approved live caller.
+            "dumpsys" -> argv == BatteryStatsBinaryOutput.ARGV
             "am" -> allowsAm(argv)
             "cmd" -> allowsAppOps(argv) || allowsWhitelist(argv)
             else -> false
