@@ -8,7 +8,6 @@ data class InsightInputs(
     val nowMs: Long,
     val todayEpochDay: Long,
     val fullUah: Long?,
-    val privileged: Boolean,
     val sessions: List<SessionInput>,
     val days: List<DayInput>,
     val appSessions: List<AppSessionInput>,
@@ -49,7 +48,6 @@ data class AppWindowInput(
     val basis: WindowBasis,
     val captureStartMs: Long,
     val captureEndMs: Long,
-    val rowsStored: Int,
     val fullRowSet: Boolean,
     /** Additional waker rows stored before profile filtering; null for inputs without storage metadata. */
     val wakersStored: Int? = null,

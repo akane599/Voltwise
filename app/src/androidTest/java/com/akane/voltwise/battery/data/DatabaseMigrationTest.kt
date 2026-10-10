@@ -337,8 +337,7 @@ class DatabaseMigrationTest {
                 db.insightDao().actionsOnce().sortedBy { it.id })
 
             val inputs = InsightInputsBuilder.build(
-                nowMs = 5_000_000, todayEpochDay = 0, fullUah = 4_000_000, privileged = true,
-                sessions = listOf(session), days = listOf(day), appRows = rows,
+                nowMs = 5_000_000, todayEpochDay = 0, fullUah = 4_000_000, sessions = listOf(session), days = listOf(day), appRows = rows,
                 wakers = usage.sessionWakers(listOf("v8")), capacity = emptyList(), dozeWhitelist = emptySet(),
                 actions = db.insightDao().actionsOnce(), findings = findings.values.toList(),
             )
@@ -346,7 +345,7 @@ class DatabaseMigrationTest {
             assertTrue(inputs.deviceWakers.isEmpty())
             // Positive control: these plausible legacy counters would be eligible without the invalidation.
             val trustedLooking = inputs.copy(sessions = inputs.sessions.map {
-                it.copy(appWindow = AppWindowInput(WindowBasis.DELTA, 1_000_000, 4_600_000, 1, false))
+                it.copy(appWindow = AppWindowInput(WindowBasis.DELTA, 1_000_000, 4_600_000, false))
             })
             assertEquals(1, AppWindows.select(trustedLooking).size)
             db.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { cursor ->

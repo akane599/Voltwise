@@ -17,7 +17,6 @@ object InsightInputsBuilder {
         nowMs: Long,
         todayEpochDay: Long,
         fullUah: Long?,
-        privileged: Boolean,
         sessions: List<ChargeSession>,
         days: List<DailySummary>,
         appRows: List<SessionAppUsage>,
@@ -34,14 +33,13 @@ object InsightInputsBuilder {
             val end = session.endTime?.takeIf { it in (nowMs - HISTORY_MS)..nowMs } ?: return@mapNotNull null
             val kind = enumName<SessionKind>(session.type.name) ?: return@mapNotNull null
             val rows = rowsBySession[session.sessionId].orEmpty()
-            val rowsStored = rows.count { !it.isOthers }
             val window = if (session.appUsageStatus == AppUsageStatus.READY) {
                 val basis = enumName<WindowBasis>(session.appUsageBasis?.name)
                 val start = session.appCaptureStartMs
                 val finish = session.appCaptureEndMs
                 if (basis != null && start != null && finish != null) {
                     AppWindowInput(
-                        basis, start, finish, rowsStored, rows.any { it.isOthers },
+                        basis, start, finish, rows.any { it.isOthers },
                         // Profile filtering must not turn filled storage slots into exact-zero evidence.
                         wakersStored = rows.count { !it.isOthers && it.rank >= 30 },
                     )
@@ -59,7 +57,7 @@ object InsightInputsBuilder {
         }
         val ids = mappedSessions.map { it.id }.toSet()
         return InsightInputs(
-            nowMs, todayEpochDay, fullUah, privileged, mappedSessions,
+            nowMs, todayEpochDay, fullUah, mappedSessions,
             days.filter { it.epochDay in (todayEpochDay - HISTORY_DAYS)..todayEpochDay }.map {
                 DayInput(it.epochDay, it.screenOnMs, it.screenOffMs, it.screenOnCoveredMs, it.screenOffCoveredMs,
                     it.screenOnDischargeUah, it.screenOffDischargeUah, it.chargedUah, it.cpuSuspendMs,

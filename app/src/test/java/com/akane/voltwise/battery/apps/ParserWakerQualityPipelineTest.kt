@@ -100,7 +100,7 @@ class ParserWakerQualityPipelineTest {
         val neighbor = usage.deviceRows.single { it.name == "neighbor" }
         assertEquals(3L, neighbor.count)
         assertEquals(60L, neighbor.totalMs)
-        val input = InsightInputsBuilder.build(4_600_001, 0, 4_000_000, true,
+        val input = InsightInputsBuilder.build(4_600_001, 0, 4_000_000,
             listOf(sessions.session), emptyList(), usage.appRows, usage.deviceRows, emptyList(), emptySet(), emptyList(), emptyList())
         assertEquals("Device rejection must preserve the certified app interval", 1, AppWindows.select(input).size)
         val causes = attributions(input, "session")

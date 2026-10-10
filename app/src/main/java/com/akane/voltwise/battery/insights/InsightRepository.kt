@@ -39,7 +39,6 @@ class InsightRepository(
     scope: CoroutineScope,
     private val clock: Clock,
     private val dozeWhitelist: suspend () -> Set<String>?,
-    private val privileged: () -> Boolean,
     private val store: KeyValueStore,
     private val maintenance: HistoryMaintenance,
     /** Latest charge counter and level, when available; FullCapacity also uses stored estimates. */
@@ -94,7 +93,7 @@ class InsightRepository(
             val wakers = ids.chunked(QUERY_CHUNK).flatMap { appUsageDao.sessionWakers(it) }
             val (counter, level) = capacityReading()
             InsightInputsBuilder.build(
-                now, today, resolveFullUah(counter, level, storedFullUah(sessions)), privileged(), sessions,
+                now, today, resolveFullUah(counter, level, storedFullUah(sessions)), sessions,
                 dailyDao.range(today - InsightInputsBuilder.HISTORY_DAYS, today), rows, wakers,
                 sessionDao.capacityEstimates(Int.MAX_VALUE).first(), dozeWhitelist(),
                 insightDao.actionsOnce(), insightDao.findingsOnce(), zone = zone,

@@ -30,7 +30,7 @@ class InsightInputsBuilderTest {
         capacity: List<CapacityEstimateRow> = emptyList(),
         actions: List<InsightActionEntity> = emptyList(),
         findings: List<InsightFindingEntity> = listOf(FindingCodec.encode(testFinding(), 1, feedbackMultiplier = 1.5)),
-    ) = InsightInputsBuilder.build(NOW, 100, 4_000_000, true, sessions, days, rows, wakers, capacity,
+    ) = InsightInputsBuilder.build(NOW, 100, 4_000_000, sessions, days, rows, wakers, capacity,
         setOf("example.app0"), actions, findings)
 
     @Test fun workProfileCopyCannotFeedMainProfileAppFindings() {
@@ -43,7 +43,6 @@ class InsightInputsBuilderTest {
         assertEquals("example.app", inputs.appSessions.first().packageName)
         assertEquals(others.powerMah, inputs.appSessions.single { it.isOthers }.powerMah, 0.0)
         assertEquals(-1, inputs.appSessions.single { it.isOthers }.uid)
-        assertEquals(2, inputs.sessions.single().appWindow!!.rowsStored)
     }
 
     @Test fun lonePrimaryProfileAppStillFeedsInputs() {
@@ -68,7 +67,6 @@ class InsightInputsBuilderTest {
             )
             val inputs = build(rows = rows)
             assertFalse(inputs.appSessions.any { it.uid == 1_010_123 })
-            assertEquals(30 + wakerCount, inputs.sessions.single().appWindow!!.rowsStored)
             assertEquals(wakerCount, inputs.sessions.single().appWindow!!.wakersStored)
             val window = AppWindows.select(inputs).single()
             for (metric in listOf(Metric.WAKEUP_ALARMS_PER_H, Metric.PARTIAL_WAKELOCK_BG_SHARE)) {
@@ -144,11 +142,9 @@ class InsightInputsBuilderTest {
     @Test fun readyWindowCountsOnlyNonOthersAndUsesOthersForFullRowSet() {
         val rows = (0..38).map { testAppRow(rank = it) } + testAppRow(rank = 39, others = true)
         val full = build(rows = rows).sessions.single().appWindow!!
-        assertEquals(39, full.rowsStored)
         assertTrue(full.fullRowSet)
         val complete = build(rows = rows.filterNot { it.isOthers } + testAppRow(rank = 39))
             .sessions.single().appWindow!!
-        assertEquals(40, complete.rowsStored)
         assertFalse(complete.fullRowSet)
         assertEquals(WindowBasis.DELTA, full.basis)
         assertEquals(HOUR, full.captureEndMs - full.captureStartMs)
@@ -166,7 +162,6 @@ class InsightInputsBuilderTest {
                 rows.map { it.copy(sessionId = "complete") },
         )
         val truncated = inputs.sessions.first { it.id == "local" }.appWindow!!
-        assertEquals(30, truncated.rowsStored)
         assertTrue(truncated.fullRowSet)
         assertFalse(inputs.sessions.first { it.id == "complete" }.appWindow!!.fullRowSet)
 

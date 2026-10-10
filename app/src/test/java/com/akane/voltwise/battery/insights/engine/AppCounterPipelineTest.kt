@@ -499,7 +499,7 @@ class AppCounterPipelineTest {
             })
         }
         collectorJob?.cancel()
-        InsightInputsBuilder.build(sessions.getValue("s3").endTime!! + HOUR, 5L, 4_000_000L, true,
+        InsightInputsBuilder.build(sessions.getValue("s3").endTime!! + HOUR, 5L, 4_000_000L,
             sessions.values.toList(), emptyList(), stored.values.flatten(), emptyList(), emptyList(), emptySet(), emptyList(), emptyList())
             .copy(actions = listOf(AppliedActionInput(2, "WAKEUP_STORM:$APP", ActionType.RESTRICT_BACKGROUND,
                 APP, UID, sessions.getValue("s1").endTime!! + HOUR, ActionStatus.APPLIED)))
@@ -533,7 +533,7 @@ class AppCounterPipelineTest {
             result.rows.mapIndexed { rank, row -> row.toSessionUsage(s.sessionId, rank, result.basis) }
         }
         val input = InsightInputsBuilder.build(
-            sessions.last().endTime!! + HOUR, 5L, 4_000_000L, true, sessions, emptyList(), stored,
+            sessions.last().endTime!! + HOUR, 5L, 4_000_000L, sessions, emptyList(), stored,
             emptyList(), emptyList(), emptySet(), emptyList(), emptyList(),
         )
         input.copy(actions = listOf(AppliedActionInput(1, "BACKGROUND_LOCATION:$APP", ActionType.RESTRICT_BACKGROUND,

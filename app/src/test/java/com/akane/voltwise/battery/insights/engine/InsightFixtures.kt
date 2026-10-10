@@ -20,7 +20,7 @@ internal fun session(index: Int, duration: Long = HOUR): SessionInput {
         screenOnCoveredMs = 0, screenOffCoveredMs = duration, screenOnUah = 0, screenOffUah = 200_000,
         cpuSuspendMs = null, screenOffSuspendMs = null, dozeMs = null, screenOffDozeMs = null,
         startLevel = 90, endLevel = 85, peakTemperatureDeciC = null, imported = false,
-        appWindow = AppWindowInput(WindowBasis.DELTA, start, start + duration, 1, false),
+        appWindow = AppWindowInput(WindowBasis.DELTA, start, start + duration, false),
     )
 }
 
@@ -41,7 +41,7 @@ internal fun highRow(id: String): AppSessionInput = row(id).copy(
 
 internal fun inputs(sessions: List<SessionInput>, rows: List<AppSessionInput>): InsightInputs = InsightInputs(
     nowMs = (sessions.maxOfOrNull { it.endMs } ?: 0L) + HOUR, todayEpochDay = 100,
-    fullUah = 4_000_000, privileged = true, sessions = sessions, days = emptyList(),
+    fullUah = 4_000_000, sessions = sessions, days = emptyList(),
     appSessions = rows, deviceWakers = emptyList(), capacity = emptyList(),
     dozeUserWhitelist = emptySet(), actions = emptyList(), feedback = emptyMap(),
 )

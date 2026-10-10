@@ -86,7 +86,7 @@ class DeviceFindingExpiryRepositoryTest {
         }
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = InsightRepository(sessionDao, daily, apps, insights, backgroundScope, clock,
-            { emptySet() }, { true }, FakeKeyValueStore(), HistoryMaintenance(),
+            { emptySet() }, FakeKeyValueStore(), HistoryMaintenance(),
             capacityReading = { 2_000_000L to 50 }, ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
             analyze = { seen += it; InsightEngine.analyze(it, 28) })
 
