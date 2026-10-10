@@ -116,7 +116,10 @@ class InsightApplyResults {
     }
 }
 
-/** Saved dialog primitives only; restoring a dialog never executes anything. Action work outlives the screen. */
+/**
+ * Saved dialog primitives only; restoring a dialog never executes anything. Action work outlives the screen.
+ * whittle: no separate selection state; add it only if a production consumer needs it, without aliasing route args.
+ */
 internal class InsightApplyFlow(
     private val source: InsightsRepository,
     private val applicationScope: CoroutineScope,
@@ -128,11 +131,10 @@ internal class InsightApplyFlow(
     private var ownLast: InsightActionMessage? = null
     val effects: Flow<InsightUiEffect> = events.receiveAsFlow()
     private val mutableState = MutableStateFlow(InsightApplyState(
-        pending = saved.get<String>(PENDING_ACTION)?.let { name ->
+        pending = (saved.get<Any?>(PENDING_ACTION) as? String)?.let { name ->
             val action = ActionType.entries.firstOrNull { it.name == name }
-            saved.get<String>(PENDING_KEY)?.let { key -> action?.let { PendingInsightApply(key, it) } }
+            (saved.get<Any?>(PENDING_KEY) as? String)?.let { key -> action?.let { PendingInsightApply(key, it) } }
         },
-        selectedKey = saved[SELECTED_KEY],
         lastResult = results.latest.value,
     ))
     val state = mutableState.asStateFlow()
@@ -160,7 +162,6 @@ internal class InsightApplyFlow(
     fun onEvent(event: InsightsEvent) {
         when (event) {
             is InsightsEvent.RequestApply -> if (!state.value.working) {
-                selected(event.key)
                 pending(PendingInsightApply(event.key, event.action))
             }
             InsightsEvent.CancelApply -> pending(null)
@@ -168,16 +169,10 @@ internal class InsightApplyFlow(
             InsightsEvent.ConfirmApply -> confirm()
             is InsightsEvent.Undo -> runAction { source.undo(event.actionId) }
             is InsightsEvent.OpenFinding -> {
-                selected(event.key)
                 events.trySend(InsightUiEffect.OpenFinding(event.key))
             }
             InsightsEvent.AnalyzeNow, is InsightsEvent.Dismiss, is InsightsEvent.NotAProblem -> Unit
         }
-    }
-
-    private fun selected(key: String) {
-        saved[SELECTED_KEY] = key
-        mutableState.update { it.copy(selectedKey = key) }
     }
 
     private fun pending(value: PendingInsightApply?) {
@@ -265,6 +260,5 @@ internal class InsightApplyFlow(
     private companion object {
         const val PENDING_KEY = "insights.pending.key"
         const val PENDING_ACTION = "insights.pending.action"
-        const val SELECTED_KEY = "key"
     }
 }
