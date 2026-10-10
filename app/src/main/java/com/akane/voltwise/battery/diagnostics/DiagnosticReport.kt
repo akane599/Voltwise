@@ -4,11 +4,19 @@ import com.akane.voltwise.battery.data.db.BatterySample
 import com.akane.voltwise.battery.measurement.ObservationSummary
 import com.akane.voltwise.battery.measurement.BatteryReading
 import java.time.Instant
+import java.util.Locale
 
 /** Deliberately excludes app/UID lists, observation IDs, raw dumps, device identifiers and exception payloads. */
 object DiagnosticReport {
     private fun time(value: Long?): String = value?.let { Instant.ofEpochMilli(it).toString() } ?: "unavailable"
-    private fun value(number: Number?, unit: String): String = number?.let { "$it $unit" } ?: "unavailable"
+    private fun value(number: Number?, unit: String): String = number?.let {
+        val formatted = when (it) {
+            is Double -> String.format(Locale.ROOT, "%.3f", it).trimEnd('0').trimEnd('.')
+            is Float -> String.format(Locale.ROOT, "%.3f", it).trimEnd('0').trimEnd('.')
+            else -> it.toString()
+        }
+        "$formatted $unit"
+    } ?: "unavailable"
     fun reading(sample: BatterySample?): String = buildString {
         appendLine("Source: Android BatteryManager / ACTION_BATTERY_CHANGED")
         appendLine("Captured: ${time(sample?.timestamp)} (UTC)")

@@ -14,6 +14,9 @@ import com.akane.voltwise.battery.data.db.DailySummary
 import com.akane.voltwise.battery.data.db.SessionType
 import com.akane.voltwise.battery.data.resolveFullUah
 import com.akane.voltwise.battery.data.uah
+import com.akane.voltwise.battery.insights.engine.detectors.app.AppContext
+import com.akane.voltwise.battery.insights.model.Severity
+import com.akane.voltwise.battery.insights.model.Subject
 import com.akane.voltwise.battery.measurement.CalibrationState
 import com.akane.voltwise.battery.measurement.DailySummaryAggregator
 import com.akane.voltwise.battery.measurement.EtaHold
@@ -39,6 +42,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 
@@ -69,7 +73,7 @@ class NowViewModel(
 
     private val live: Flow<Live> = combine(
         source.realtime.scan(EtaHold.Reading()) { previous, reading -> EtaHold.next(previous, reading) },
-        monitoring.isMonitoring,
+        monitoring.isMonitoring.onEach { active -> if (active) startBlocked.value = false },
         startBlocked,
     ) { reading, on, blocked ->
         Live(
@@ -111,7 +115,10 @@ class NowViewModel(
     val state: StateFlow<NowUiState> = combine(
         combine(live, trace, source.settings.map { it.useFahrenheit }.distinctUntilChanged(), source.calibration, ::Now),
         combine(today, health, topApps, source.dischargeSessions(1).map { it.firstOrNull() }, ::Cards),
-    ) { now, cards ->
+        source.insights,
+        source.lastAnalyzedAt,
+        source.eligibleSessionCount.distinctUntilChanged(),
+    ) { now, cards, report, lastAnalyzedAt, eligibleSessions ->
         val fullUah = resolveFullUah(now.live.counterUah, now.live.levelPct, cards.health?.estimate?.fullUah)
         NowUiState(
             nowMs = now.live.nowMs,
@@ -122,6 +129,20 @@ class NowViewModel(
             today = cards.today?.let { NowMapping.today(it, fullUah) },
             health = cards.health?.let(NowMapping::health),
             topApps = cards.topApps,
+            insightsSummary = report?.takeIf { lastAnalyzedAt != null }?.let {
+                val active = it.findings.count { finding -> finding.severity != Severity.INFO }
+                // What Insights lists under Changes: informational trends and the capacity decline.
+                val changes = it.findings.count { finding -> isInsightChange(finding.type, finding.severity, finding.direction) }
+                InsightsSummary(
+                    headline = it.headline?.let { finding ->
+                        InsightHeadline(finding.key, finding.type, finding.severity, (finding.subject as? Subject.App)?.packageName)
+                    },
+                    activeFindingCount = active,
+                    changeCount = changes,
+                    // Insights' rule: findings and changes win, then too few comparable sessions is "still learning".
+                    learning = active == 0 && changes == 0 && eligibleSessions < AppContext.MIN_ELIGIBLE_WINDOWS,
+                )
+            },
             calibrationNotice = NowMapping.notice(now.calibration),
             useFahrenheit = now.fahrenheit,
         )

@@ -5,8 +5,8 @@ Battery readings, observed charging/discharging sessions and privileged per-app 
 Android, developed on Ubuntu from the CLI.
 
 <!-- STACK:BEGIN -->
-- Origin: existing · Integration branch: main (origin/HEAD); current work branch: feat/overhaul
-- Language: Kotlin only (273 files, Java 0) · New code in Kotlin
+- Origin: existing · Integration branch: main (origin/HEAD); current work branch: feat/insights
+- Language: Kotlin only (no Java) · New code in Kotlin
 - UI: Compose Material 3, dark-only + OLED; 6 RemoteViews XML layouts · screenshot tests: compose-preview, AGP screenshotTest suite (0.0.1-alpha16)
 - UI profile: previews 12 (detector count) · dynamic color opt-in (API 31+, accents only) · custom typography Space Grotesk, numeric tnum · literal colors outside theme 0
 - JDK target 21 · JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64; not pinned in gradle.properties · Gradle 9.7.1 · AGP 9.5.0-alpha07 · Kotlin 2.4.20 · compileSdk 37 · minSdk 26
@@ -14,7 +14,7 @@ Android, developed on Ubuntu from the CLI.
 - DI/DB/Net: Koin / Room / none · Async: coroutines/Flow · Navigation: Navigation 3 · Firebase: no · Version catalog: yes
 - App id: com.akane.voltwise (debug .debug, preview .preview; was org.mlm.batstats before 2026-10-08) · namespace: com.akane.voltwise (was app.batstats) · Launcher: com.akane.voltwise.battery.BatteryMainActivity
 - Tests: JUnit4 + kotlinx-coroutines-test; androidTest present, no Espresso · Lint: Android lint; no detekt/ktlint/spotless
-- Baseline: debug build OK (2026-10-07); existing unit reports 542 tests, 0 failures/errors (not rerun by bootstrap; PROGRESS.md)
+- Baseline: full gate green on feat/insights @ 6d81b43 (2026-10-10): unit 1795/0 fail, androidTest compile, assembleDebug, 274 screenshots/0 fail, migrations; assemblePreview last OK @ 257ddc4
 <!-- STACK:END -->
 
 ## How work flows here
@@ -31,18 +31,19 @@ Android, developed on Ubuntu from the CLI.
 
 ## Environment
 - ANDROID_HOME=/home/dev/android-sdk; use the environment SDK, never create/edit local.properties.
-- LSP: official JetBrains kotlin-lsp at /home/dev/.local/bin/kotlin-lsp (detector's legacy kotlin-language-server check missed it); no Kotlin LSP install needed.
-- AVDs: none — create one before emulator/device QA; no adb device connected, KVM unavailable on this host.
+- LSP: official JetBrains kotlin-lsp at /home/dev/.local/bin/kotlin-lsp; no Kotlin LSP install needed.
+- Devices: no AVD possible (KVM unavailable). Device QA uses the user's phone through a reverse-forwarded adb server: the user runs `adb start-server` locally with the phone attached, then `ssh -R 5037:127.0.0.1:5037 dev@<host>`; here `adb devices` must list it before any device ticket. Both sides need the same platform-tools version (host: adb 1.0.41), or the client restarts the user's server.
+- Disk: repo, Android SDK and Gradle user home (`~/.gradle` → /mnt/HC_Volume_106903020/gradle-home) live on the volume; Sidequest worktrees stay on the small root disk.
 
 ## Commands
 - Build: `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :app:assembleDebug --console=plain -q`
 - Unit: `./gradlew :app:testDebugUnitTest --console=plain -q` · Lint: `./gradlew :app:lintDebug --console=plain -q`
+- Preview APK: `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :app:assemblePreview --console=plain -q` — minified, debug-key signed unless `PREVIEW_*` env vars are set, installs as `.preview`; split APKs in `app/build/outputs/apk/preview/` (`app-universal-preview.apk`, `app-arm64-v8a-preview.apk`). Release needs `KEYSTORE_PATH`/`STORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD`.
 - Gradle helper: `bash .claude/kit/gradle-check.sh :app:assembleDebug` (retains full log and actual exit code; uses --console=plain -q).
-- Screenshots: `bash .claude/scripts/run_screenshot_tests.sh` runs `:app:testDebugScreenshotTestDefaultTestSuite --rerun --console=plain -q`; the template's updateDebugScreenshotTest/validateDebugScreenshotTest tasks do not match this AGP suite. Do not update references during bootstrap.
+- Screenshots: `bash .claude/scripts/run_screenshot_tests.sh` runs `:app:testDebugScreenshotTestDefaultTestSuite --rerun --console=plain -q`; the template's updateDebugScreenshotTest/validateDebugScreenshotTest tasks do not match this AGP suite.
 - Instrumented: `./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.akane.voltwise.test.RequiresShizuku --console=plain -q` (requires a device; Shizuku tests are a separate phase).
 - Device: `./gradlew :app:installDebug --console=plain -q && adb shell am start -n com.akane.voltwise.debug/com.akane.voltwise.battery.BatteryMainActivity`
 - Logs: `adb logcat -d --pid=$(adb shell pidof -s com.akane.voltwise.debug) | tail -80`
-- Emulator: no configured AVD, so no launch command yet; after creating/launching one, wait with `adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'`.
-
-## Open questions
-- None from stack detection after targeted checks. Device QA needs an AVD or attached device; unit results above are existing reports, not a fresh bootstrap test run.
+- Emulator: none on this host (see Devices); the emulator phases run in CI (`.github/workflows/build-apk.yml`).
+- CI logs: `gh run view --log-failed` comes back empty here; use `gh api repos/akane599/Voltwise/actions/jobs/<job-id>/logs`. Device-phase results: artifact `validation-reports-*` → `reports/device-validation/standard/ordinary-results/*.xml` and `phase-status.txt` (`ordinary_exit`, `shizuku_exit`).
+- Known CI flake: the 16 KB page-size emulator step can fail with `Error on ZipFile unknown archive` (corrupt system-image download, emulator never boots); check `ordinary_exit`/`shizuku_exit` are 0, then `gh run rerun <run-id> --failed`.

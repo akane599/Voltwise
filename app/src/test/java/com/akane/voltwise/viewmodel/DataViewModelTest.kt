@@ -2,6 +2,12 @@ package com.akane.voltwise.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
 import com.akane.voltwise.battery.data.HistoryImportResult
+import com.akane.voltwise.battery.data.HistoryMaintenance
+import com.akane.voltwise.battery.data.sampling.FakeKeyValueStore
+import com.akane.voltwise.battery.service.MonitoringControl
+import com.akane.voltwise.battery.service.MonitoringController
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertFalse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +42,34 @@ class DataViewModelTest {
 
     private fun TestScope.start(saved: SavedStateHandle = SavedStateHandle(), now: Long = NOW): DataViewModel =
         DataViewModel(repo, saved, clock = { now }).also { runCurrent() }
+
+    @Test fun clearAllPersistsMonitoringOptOutBeforeStopAndDeletion() = runTest {
+        val store = FakeKeyValueStore(mapOf("monitoring_wanted" to "true"))
+        fun controller() = MonitoringController(
+            MutableStateFlow(false), store, { MonitoringControl.StartResult.STARTED }, {},
+        )
+        val maintenance = HistoryMaintenance()
+        val events = mutableListOf<String>()
+        DefaultDataRepository.clearAll(
+            clearHistory = { stop ->
+                maintenance.clear(
+                    stopMonitoring = { stop() },
+                    delete = {
+                        assertFalse("Cleared history must not resume monitoring after an update", controller().monitoringWanted)
+                        events += "delete"
+                    },
+                )
+            },
+            store = store,
+            stopService = {
+                assertTrue("The history-clear guard must be held while stopping", maintenance.isClearing)
+                assertFalse("Clear must persist the opt-out before stopping the service", controller().monitoringWanted)
+                events += "stop"
+            },
+        )
+        assertEquals(listOf("stop", "delete"), events)
+        assertFalse(controller().monitoringWanted)
+    }
 
     @Test fun storedCountsLoadOnOpenAndRefreshAfterAnImport() = runTest {
         repo.stored = StoredHistory(samples = 12_480, sessions = 86)

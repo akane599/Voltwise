@@ -33,7 +33,7 @@
     <string name="data_import_json">JSON içe aktar</string>
     <string name="data_import_csv">CSV içe aktar</string>
     <string name="data_import_info_title">İçe aktarma hakkında</string>
-    <string name="data_import_info_body">İçe aktarılanlar geçmişinize eklenir ve izlemeyi asla başlatmaz. Aynı kayıtlar atlanır. Kayıtlı verilerle çakışan ya da geçersiz kayıt içeren bir dosya bütünüyle reddedilir; böylece hiçbir şey yarım aktarılmaz.\n\nBir CSV dosyası ölçümleri, oturumları ya da uygulama kullanımını içerir; dosyaları tek tek aktarın. 64 MiB\'a kadar dosyalar kabul edilir.</string>
+    <string name="data_import_info_body">İçe aktarılanlar geçmişinize eklenir ve izlemeyi asla başlatmaz. Aynı kayıtlar atlanır. Kayıtlı verilerle çakışan ya da geçersiz kayıt içeren bir dosya bütünüyle reddedilir; böylece hiçbir şey yarım aktarılmaz.\n\nBir CSV dosyası ölçümleri ya da oturumları içerir; dosyaları tek tek aktarın. Eski dışa aktarımlardaki uygulama başına kullanım içe aktarılmaz; Voltwise bunu yeni oturumlardan yeniden oluşturur. 64 MiB\'a kadar dosyalar kabul edilir.</string>
     <string name="data_imported">Eklenen ölçüm: %1$s · eklenen oturum: %2$s · uzatılan: %3$s · değişmeyen: %4$s</string>
 
     <!-- Ayar yedeği -->

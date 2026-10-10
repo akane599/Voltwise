@@ -104,6 +104,29 @@ fun BatterySettingsScreenLargeFontOptionsPreview() {
     }
 }
 
+/** Android blocks the app's notifications (permission denied): the notice leading Alerts, with Turn on. */
+@PreviewTest
+@PhonePreview
+@Composable
+fun BatterySettingsScreenNotificationsOffPreview() {
+    ScreenshotTheme {
+        SettingsFixture(SettingsUiState(notificationsEnabled = false))
+    }
+}
+
+/** Scrolls the tall phone to the end (clamped), where the Data panel sits on a phone. */
+private val RetentionScrollOffset = 2_000.dp
+
+/** Settings recovered from corruption without a retention choice: Keep history reads "not set", cleanup paused. */
+@PreviewTest
+@TallPhonePreview
+@Composable
+fun BatterySettingsScreenRetentionUnsetPreview() {
+    ScreenshotTheme {
+        SettingsFixture(SettingsUiState(retentionUnset = true), scrollTo = RetentionScrollOffset)
+    }
+}
+
 /** A write the store refused: the inline error under the title. */
 @PreviewTest
 @PhonePreview

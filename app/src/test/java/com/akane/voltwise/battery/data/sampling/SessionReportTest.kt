@@ -5,6 +5,7 @@ import com.akane.voltwise.battery.data.HistoryPolicy
 import com.akane.voltwise.battery.data.SessionDrain
 import com.akane.voltwise.battery.data.db.BatterySample
 import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.measurement.BatteryReading
 import com.akane.voltwise.battery.measurement.Boundary
 import com.akane.voltwise.battery.measurement.CapacityBasis
 import com.akane.voltwise.battery.measurement.CapacityConfidence
@@ -26,6 +27,71 @@ class SessionReportTest {
     private fun BatterySample.point(power: PowerState, boundary: Boundary = Boundary.SAMPLE, uptime: Long = uptimeMs!!) =
         Observation(timestamp, elapsedMs!!, uptime, levelPercent, chargeCounterUah, currentNowUa, voltageMv, power, screenOn, false,
             "run", 30_000, boundary)
+
+    @Test fun dozeIsUnknownUntilObservedThenReportCopiesBothCounters() {
+        val first = sample(80, 4_000_000, 0, 3, 0)
+        val point = first.point(PowerState.DISCHARGING).copy(dozing = true)
+        val session = SessionReport.open(point, first)
+        val initial = SessionReport.report(session, first, engine.accept(point), SessionExtremes())
+        assertNull(initial.dozeMs)
+        assertNull(initial.screenOffDozeMs)
+        val off = sample(80, 3_999_000, 0, 3, 60_000, screenOn = false)
+        engine.accept(off.point(PowerState.DISCHARGING, Boundary.SCREEN).copy(dozing = true))
+        val last = sample(80, 3_998_000, 0, 3, 120_000, screenOn = false)
+        val summary = engine.accept(last.point(PowerState.DISCHARGING).copy(dozing = true))
+        val report = SessionReport.report(session, last, summary, SessionExtremes())
+        assertEquals(120_000L, report.dozeMs)
+        assertEquals(60_000L, report.screenOffDozeMs)
+        engine.reset()
+        val zero = reportSamples(PowerState.PLUGGED, first, first.copy(timestamp = first.timestamp + 60_000, elapsedMs = 60_000, uptimeMs = 60_000))
+        assertEquals(0L, zero.dozeMs)
+        assertEquals(0L, zero.screenOffDozeMs)
+    }
+
+    @Test fun nonDischargingSessionsExcludeScreenOffSuspendFromRegularCaptures() {
+        for (power in listOf(PowerState.CHARGING, PowerState.PLUGGED, PowerState.UNKNOWN)) {
+            engine.reset()
+            val status = when (power) {
+                PowerState.CHARGING -> 2
+                PowerState.PLUGGED -> 4
+                else -> 1
+            }
+            val first = sample(80, 4_000_000, 1, status, 0, screenOn = false)
+            assertEquals(power, BatteryReading.powerState(first.status, first.plugged))
+            val session = SessionReport.open(first.point(power), first)
+            engine.accept(first.point(power))
+            val last = sample(80, 4_000_000, 1, status, 60_000, screenOn = false)
+            val summary = engine.accept(last.point(power, uptime = 1_000))
+            val extremes = SessionExtremes().plus(-2_000.0, 300)
+            val report = SessionReport.report(session, last, summary, extremes)
+            assertEquals("$power retains all-power CPU suspend", 59_000L, report.cpuSuspendMs)
+            assertEquals("$power has no discharging screen-off duration", 0L, report.screenOffMs)
+            assertEquals("$power excludes non-discharging screen-off suspend", 0L, report.screenOffSuspendMs)
+            assertEquals(2_000L, report.peakPowerMw)
+            assertEquals(300, report.peakTemperatureDeciC)
+        }
+    }
+
+    @Test fun nonDischargingPowerBoundariesExcludeClosingScreenOffSuspend() {
+        for (power in listOf(PowerState.CHARGING, PowerState.PLUGGED, PowerState.UNKNOWN)) {
+            engine.reset()
+            val status = when (power) {
+                PowerState.CHARGING -> 2
+                PowerState.PLUGGED -> 4
+                else -> 1
+            }
+            val first = sample(80, 4_000_000, 1, status, 0, screenOn = false)
+            assertEquals(power, BatteryReading.powerState(first.status, first.plugged))
+            val session = SessionReport.open(first.point(power), first)
+            engine.accept(first.point(power))
+            val boundary = sample(80, 4_000_000, 0, 3, 60_000, screenOn = false)
+            val closed = SessionReport.reportPowerBoundary(session, boundary,
+                boundary.point(PowerState.DISCHARGING, Boundary.POWER, uptime = 1_000), engine, SessionExtremes())
+            assertEquals("$power boundary retains all-power CPU suspend", 59_000L, closed.cpuSuspendMs)
+            assertEquals("$power boundary has no discharging screen-off duration", 0L, closed.screenOffMs)
+            assertEquals("$power boundary excludes non-discharging screen-off suspend", 0L, closed.screenOffSuspendMs)
+        }
+    }
 
     @Test fun chargerTypeFollowsExtraPlugged() {
         assertEquals(ChargerType.AC, ChargerType.of(1))
@@ -182,8 +248,7 @@ class SessionReportTest {
         var previous = engine.summary
         fun add(next: BatterySample, uptime: Long, boundary: Boundary = Boundary.SAMPLE) {
             val summary = engine.accept(next.point(PowerState.DISCHARGING, boundary, uptime))
-            extremes = extremes.plus(-2_000.0, next.temperatureDeciC, summary.cpuSuspendMs - previous.cpuSuspendMs,
-                screenOffBefore = previous.latest?.interactive == false)
+            extremes = extremes.plus(-2_000.0, next.temperatureDeciC)
             previous = summary
         }
         engine.accept(first.point(PowerState.DISCHARGING)); previous = engine.summary
@@ -242,7 +307,7 @@ class SessionReportTest {
         val last = sample(level = 50, charge = 2_400_000, plugged = 0, status = 3,
             elapsed = 7_200_000, screenOn = false)
         val summary = engine.accept(last.point(PowerState.DISCHARGING, uptime = 60_000))
-        val extremes = SessionExtremes(screenOffSuspendMs = 3_570_000)
+        val extremes = SessionExtremes()
         val current = SessionReport.report(session, last, summary, extremes)
         assertEquals(current.observedMs, current.counterCoveredMs)
 
@@ -317,7 +382,7 @@ class SessionReportTest {
         val first = sample(level = 90, charge = 4_000_000, plugged = 0, status = 3, elapsed = 0)
         val point = first.point(PowerState.DISCHARGING)
         val session = SessionReport.open(point, first)
-        val extremes = SessionExtremes().plus(1.56e6, first.temperatureDeciC, 0, screenOffBefore = false)
+        val extremes = SessionExtremes().plus(1.56e6, first.temperatureDeciC)
         val written = SessionReport.report(session, first, engine.accept(point), extremes)
         val result = runCatching { HistoryPolicy.session(written) }
         assertTrue("Writer's own session must import: ${result.exceptionOrNull()?.message}", result.isSuccess)
@@ -328,20 +393,20 @@ class SessionReportTest {
 
     @Test fun extremesIgnoreImplausiblePowerWithoutLosingOtherMeasurementsOrPlausiblePeaks() {
         val missing = SessionExtremes()
-            .plus(1_000_000.1, 310, 5_000, screenOffBefore = true)
-            .plus(-1.56e6, 290, 7_000, screenOffBefore = false)
-        assertEquals(SessionExtremes(peakTemperatureDeciC = 310, screenOffSuspendMs = 5_000), missing)
-        val plausible = missing.plus(-1_000_000.0, 320, 2_000, screenOffBefore = true)
-            .plus(1.56e6, 300, 0, screenOffBefore = false)
-        assertEquals(SessionExtremes(peakPowerMw = 1_000_000, peakTemperatureDeciC = 320, screenOffSuspendMs = 7_000), plausible)
-        assertEquals(0L, SessionExtremes().plus(0.0, null, 0, screenOffBefore = false).peakPowerMw)
+            .plus(1_000_000.1, 310)
+            .plus(-1.56e6, 290)
+        assertEquals(SessionExtremes(peakTemperatureDeciC = 310), missing)
+        val plausible = missing.plus(-1_000_000.0, 320)
+            .plus(1.56e6, 300)
+        assertEquals(SessionExtremes(peakPowerMw = 1_000_000, peakTemperatureDeciC = 320), plausible)
+        assertEquals(0L, SessionExtremes().plus(0.0, null).peakPowerMw)
     }
 
     @Test fun extremesKeepMaximaAndIgnoreMissingValues() {
         val extremes = SessionExtremes()
-            .plus(-1_500.0, 310, 0, screenOffBefore = false)
-            .plus(null, null, 5_000, screenOffBefore = true)
-            .plus(900.0, 290, 7_000, screenOffBefore = false)
-        assertEquals(SessionExtremes(peakPowerMw = 1_500, peakTemperatureDeciC = 310, screenOffSuspendMs = 5_000), extremes)
+            .plus(-1_500.0, 310)
+            .plus(null, null)
+            .plus(900.0, 290)
+        assertEquals(SessionExtremes(peakPowerMw = 1_500, peakTemperatureDeciC = 310), extremes)
     }
 }

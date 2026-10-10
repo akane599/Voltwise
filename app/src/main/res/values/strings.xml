@@ -56,6 +56,7 @@
     <string name="option_6_months">6 months</string>
     <string name="option_1_year">1 year</string>
     <string name="option_forever">Forever (within storage limits)</string>
+    <string name="settings_retention_unset">Not set. Cleanup is paused until you choose a period.</string>
     <string name="monitor_channel">Battery monitoring</string>
     <string name="monitor_channel_description">Live battery readings and observed drain; silent while monitoring</string>
     <string name="monitor_eta_full">Est. full in %1$s</string>

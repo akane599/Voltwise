@@ -6,6 +6,7 @@ import com.akane.voltwise.battery.apps.SessionSnapshotCollector.Companion.STARTU
 import com.akane.voltwise.battery.apps.SessionSnapshotCollector.Companion.SWEEP_DEBOUNCE_MS
 import com.akane.voltwise.battery.data.PowerTransition
 import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.diagnostics.DiagnosticCode
 import com.akane.voltwise.battery.measurement.PowerState
 import com.akane.voltwise.battery.util.BatteryStatsParser
 import kotlinx.coroutines.CompletableDeferred
@@ -44,6 +45,9 @@ class SessionSnapshotCollectorTest {
         val ends = mutableMapOf<String, AppUsageSnapshot>()
         val usage = mutableMapOf<String, List<AppUsageRow>>()
         var failWrites = false
+        var statusGate: CompletableDeferred<Unit>? = null
+        var endGate: CompletableDeferred<Unit>? = null
+        val captureWindows = mutableMapOf<String, Pair<Long?, Long?>>()
         var openSessionError: Exception? = null
         var openSessionFailures = 0
 
@@ -63,15 +67,21 @@ class SessionSnapshotCollectorTest {
         }
         override suspend fun saveEnd(sessionId: String, end: AppUsageSnapshot, result: AppUsageDeltaResult): Boolean {
             check(!failWrites) { "disk I/O error" }
+            endGate?.await()
             val row = sessions[sessionId] ?: return false
             ends[sessionId] = end
             usage[sessionId] = result.rows
             row.status = AppUsageStatus.READY
             row.basis = result.basis
+            captureWindows[sessionId] = result.captureStartMs to result.captureEndMs
             return true
         }
-        override suspend fun setStatus(sessionId: String, status: AppUsageStatus) {
-            sessions[sessionId]?.status = status
+        override suspend fun setStatus(sessionId: String, status: AppUsageStatus): Boolean {
+            check(!failWrites) { "disk I/O error" }
+            statusGate?.await()
+            val row = sessions[sessionId] ?: return false
+            row.status = status
+            return true
         }
         override suspend fun pendingClosedDischarges() = sessions.entries
             .filter { (_, row) -> row.type == SessionType.DISCHARGE && row.closed && row.status == AppUsageStatus.PENDING }
@@ -94,9 +104,13 @@ class SessionSnapshotCollectorTest {
     private val store = FakeStore()
     private val transitions = MutableSharedFlow<PowerTransition>(extraBufferCapacity = 16)
     private val warnings = mutableListOf<String>()
+    private val diagnostics = mutableListOf<DiagnosticCode>()
 
+    private val collector = SessionSnapshotCollector(
+        stats, store, transitions, log = {}, warn = { warnings += it }, onDiagnostic = { diagnostics += it },
+    )
     private fun TestScope.start() {
-        backgroundScope.launch { SessionSnapshotCollector(stats, store, transitions, log = {}, warn = { warnings += it }).run() }
+        backgroundScope.launch { collector.run() }
         runCurrent()
     }
 
@@ -127,6 +141,63 @@ class SessionSnapshotCollectorTest {
     private fun ready(windowStart: Long, vararg power: Pair<Int, Double>) = AppStatsResult.Ready(full(windowStart, *power))
 
     private fun baseline(windowStart: Long, vararg power: Pair<Int, Double>) = full(windowStart, *power).toAppUsageSnapshot()
+
+    @Test fun incompleteBaselineRecordsAdvancedIncompleteOnceAndSavesNoBaseline() = runTest {
+        assertIncompleteBaseline(full(100, 1 to 1.0).copy(appMeasurementsComplete = false))
+    }
+
+    @Test fun rejectedPowerBaselineRecordsAdvancedIncompleteOnceAndSavesNoBaseline() = runTest {
+        assertIncompleteBaseline(full(100, 1 to 1.0).copy(rejectedAppPowerRecords = 1))
+    }
+
+    private suspend fun TestScope.assertIncompleteBaseline(snapshot: BatteryStatsParser.FullSnapshot) {
+        store.openDischarge("A")
+        stats.results += AppStatsResult.Ready(snapshot)
+        start()
+        advance(BASELINE_DEBOUNCE_MS)
+        assertEquals(listOf(true), stats.calls)
+        assertTrue("Incomplete measurements must not become a baseline", store.baselines.isEmpty())
+        assertEquals("Records ADVANCED_INCOMPLETE once for the baseline skip",
+            listOf(DiagnosticCode.ADVANCED_INCOMPLETE), diagnostics)
+        advance(10 * BASELINE_DEBOUNCE_MS)
+        assertEquals("No duplicate diagnostic without another dump", 1, diagnostics.size)
+    }
+
+    @Test fun incompleteEndRecordsAdvancedIncompleteAndStoresNoCaptureStart() = runTest {
+        assertIncompleteEnd(full(100, 1 to 3.0).copy(capturedAt = 2_000, appMeasurementsComplete = false))
+    }
+
+    @Test fun rejectedPowerEndRecordsAdvancedIncompleteAndStoresNoCaptureStart() = runTest {
+        assertIncompleteEnd(full(100, 1 to 3.0).copy(capturedAt = 2_000, rejectedAppPowerRecords = 1))
+    }
+
+    private suspend fun TestScope.assertIncompleteEnd(snapshot: BatteryStatsParser.FullSnapshot) {
+        store.openDischarge("A")
+        store.baselines["A"] = baseline(100, 1 to 1.0)
+        stats.results += AppStatsResult.Ready(snapshot)
+        start()
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+        assertEquals(AppUsageStatus.READY, store.status("A"))
+        assertNotNull("Accepted end evidence is retained", store.ends["A"])
+        assertEquals(null to 2_000L, store.captureWindows["A"])
+        assertEquals("Records ADVANCED_INCOMPLETE once for the non-comparable END",
+            listOf(DiagnosticCode.ADVANCED_INCOMPLETE), diagnostics)
+    }
+
+    @Test fun completeBaselineAndEndRecordNoDiagnosticsAndKeepComparableCapture() = runTest {
+        store.openDischarge("A")
+        stats.results += ready(100, 1 to 1.0)
+        start()
+        advance(BASELINE_DEBOUNCE_MS)
+        assertNotNull(store.baselines["A"])
+        assertTrue("Complete baseline records no diagnostic", diagnostics.isEmpty())
+        stats.results += AppStatsResult.Ready(full(100, 1 to 3.0).copy(capturedAt = 2_000))
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+        assertEquals(1_000L to 2_000L, store.captureWindows["A"])
+        assertTrue("Complete END records no diagnostic", diagnostics.isEmpty())
+    }
 
     @Test fun plugInWaitsTenSecondsThenStoresTheEndAndTheDelta() = runTest {
         store.openDischarge("A")
@@ -356,6 +427,88 @@ class SessionSnapshotCollectorTest {
         listOf(SessionType.CHARGE, SessionType.PLUGGED, SessionType.UNKNOWN).forEach {
             assertEquals(AppUsageStatus.NOT_APPLICABLE, SessionSnapshotCollector.initialStatus(it))
         }
+    }
+
+    @Test fun readyFinalizationEmitsOnceAfterUsageAndCaptureWindowPersisted() = runTest {
+        store.openDischarge("A")
+        store.baselines["A"] = baseline(100, 1 to 1.0).copy(capturedAt = 123)
+        val events = mutableListOf<String>()
+        backgroundScope.launch { collector.finalizedSessions.collect { id ->
+            assertEquals(AppUsageStatus.READY, store.status(id))
+            assertEquals(123L to 456L, store.captureWindows[id])
+            assertEquals(2.0, store.usage.getValue(id).single().powerMah, 0.0)
+            events += id
+        } }
+        start()
+        store.endGate = CompletableDeferred()
+        stats.results += AppStatsResult.Ready(full(100, 1 to 3.0).copy(capturedAt = 456))
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+        assertTrue(events.isEmpty())
+        assertEquals(AppUsageStatus.PENDING, store.status("A"))
+        assertFalse(store.captureWindows.containsKey("A"))
+        store.endGate?.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("A"), events)
+        assertTrue(collector.finalizedSessions.replayCache.isEmpty())
+        stats.results += AppStatsResult.Ready(full(100, 1 to 3.0).copy(capturedAt = 456))
+        plugIn("A", "C2")
+        advance(END_DEBOUNCE_MS)
+        assertEquals(listOf("A"), events)
+    }
+
+    @Test fun noAccessFinalizationEmitsAfterStatusPersistence() = runTest {
+        assertStatusFinalization(AppStatsResult.NoAccess, AppUsageStatus.NO_ACCESS)
+    }
+
+    @Test fun failedFinalizationEmitsAfterStatusPersistence() = runTest {
+        assertStatusFinalization(AppStatsResult.Failed("no dump"), AppUsageStatus.FAILED)
+    }
+
+    private suspend fun TestScope.assertStatusFinalization(result: AppStatsResult, expected: AppUsageStatus) {
+        store.openDischarge("A")
+        val events = mutableListOf<String>()
+        backgroundScope.launch { collector.finalizedSessions.collect { id ->
+            assertEquals(expected, store.status(id))
+            events += id
+        } }
+        start()
+        store.statusGate = CompletableDeferred()
+        stats.results += result
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+        assertTrue(events.isEmpty())
+        assertEquals(AppUsageStatus.PENDING, store.status("A"))
+        store.statusGate?.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("A"), events)
+        advance(STARTUP_SWEEP_DELAY_MS)
+        assertEquals(listOf("A"), events)
+    }
+
+    @Test fun failedPersistenceDoesNotEmitFinalization() = runTest {
+        store.openDischarge("A")
+        val events = mutableListOf<String>()
+        backgroundScope.launch { collector.finalizedSessions.collect { events += it } }
+        start()
+        store.failWrites = true
+        stats.results += ready(100, 1 to 3.0)
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+        assertTrue(events.isEmpty())
+        assertEquals(AppUsageStatus.PENDING, store.status("A"))
+    }
+
+    @Test fun deletedSessionDoesNotEmitFinalization() = runTest {
+        store.openDischarge("A")
+        val events = mutableListOf<String>()
+        backgroundScope.launch { collector.finalizedSessions.collect { events += it } }
+        start()
+        stats.results += AppStatsResult.NoAccess
+        plugIn("A", "C")
+        store.sessions.remove("A")
+        advance(END_DEBOUNCE_MS)
+        assertTrue(events.isEmpty())
     }
 
     @Test fun rowsCollapseToOnePerUid() {

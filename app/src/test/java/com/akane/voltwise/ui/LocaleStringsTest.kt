@@ -45,8 +45,8 @@ class LocaleStringsTest {
             assertTrue("$dir apps_details_history_caption needs one and other: $items", items.keys.containsAll(listOf("one", "other")))
         }
         val en = plural("values", "apps_details_history_caption")
-        assertEquals("Among the top 30 in 1 of 1 session", String.format(Locale.US, en.getValue("one"), 1, 1))
-        assertEquals("Among the top 30 in 2 of 5 sessions", String.format(Locale.US, en.getValue("other"), 2, 5))
+        assertEquals("Individually recorded in 1 of 1 session", String.format(Locale.US, en.getValue("one"), 1, 1))
+        assertEquals("Individually recorded in 2 of 5 sessions", String.format(Locale.US, en.getValue("other"), 2, 5))
     }
 
     @Test fun calibrationEvidenceIsAPluralInEveryLocale() {

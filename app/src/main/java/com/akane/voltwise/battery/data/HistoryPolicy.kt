@@ -1,15 +1,16 @@
 package com.akane.voltwise.battery.data
 
+import android.os.BatteryManager
 import androidx.room.withTransaction
 import com.akane.voltwise.battery.apps.AppUsageStatus
 import com.akane.voltwise.battery.data.db.BatteryDatabase
 import com.akane.voltwise.battery.data.db.BatterySample
 import com.akane.voltwise.battery.data.db.ChargeSession
-import com.akane.voltwise.battery.data.db.SessionAppUsage
 import com.akane.voltwise.battery.measurement.BatteryReading
 import kotlinx.serialization.json.Json
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 
@@ -21,12 +22,12 @@ internal enum class ImportSessionDisposition(val added: Int = 0, val updated: In
 }
 
 internal data class SessionImportPlan(val session: ChargeSession, val disposition: ImportSessionDisposition)
-internal data class UsageImportPlan(val rows: List<SessionAppUsage>, val updated: Int, val unchanged: Int)
 
 /** Imported records are historical evidence, never a resumed live observation. */
 object HistoryPolicy {
     private val canonicalJson = Json { encodeDefaults = true }
     private const val MAX_TIMESTAMP = 253402300799999L // end of year9999, milliseconds since Unix epoch
+    private const val MAX_IMPORT_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000L
     fun originalId(value: String) = value.removePrefix("import:")
     private fun requiredIdentity(value: String): String {
         require(value.isNotBlank() && originalId(value).length <= 240 && value.none { c -> c.isISOControl() }) { "Invalid history identity" }
@@ -36,7 +37,10 @@ object HistoryPolicy {
     private fun source(value: String) = "import:${value.removePrefix("import:").take(128)}"
     private fun requiredText(value: String): String = value.also { require(it.length <= 512 && it.trimStart().firstOrNull() !in listOf('=', '+', '-', '@') && '\u0000' !in it) { "Invalid history text" } }
     private fun text(value: String?): String? = value?.let { requiredText(it) }
-    private fun epoch(value: Long) { require(value in 0..MAX_TIMESTAMP) { "Invalid timestamp; expected Unix milliseconds" } }
+    private fun epoch(value: Long, importTimeMs: Long) {
+        require(value in 0..MAX_TIMESTAMP) { "Invalid timestamp; expected Unix milliseconds" }
+        require(value <= importTimeMs + MAX_IMPORT_CLOCK_SKEW_MS) { "Invalid timestamp; exceeds import time allowance" }
+    }
     private fun charge(value: Long?): Long? {
         if (value == Long.MIN_VALUE || value == Int.MIN_VALUE.toLong()) return null
         return value?.let(BatteryReading::chargeUah).also { require(value == null || it != null) { "Invalid charge counter; expected µAh" } }
@@ -45,10 +49,11 @@ object HistoryPolicy {
         if (value == Long.MIN_VALUE || value == Int.MIN_VALUE.toLong()) return null
         return value?.let(BatteryReading::currentUa).also { require(value == null || it != null) { "Invalid current; expected µA" } }
     }
-    fun sample(input: BatterySample): BatterySample {
-        epoch(input.timestamp)
+    fun sample(input: BatterySample): BatterySample = sample(input, Clock.systemUTC())
+
+    fun sample(input: BatterySample, clock: Clock): BatterySample {
+        epoch(input.timestamp, clock.millis())
         require(input.levelPercent == null || input.levelPercent in 0..100) { "Invalid battery percentage" }
-        require(input.status in 1..5 && (input.plugged == null || input.plugged in 0..15)) { "Invalid power state" }
         require(input.elapsedMs == null || input.elapsedMs >= 0) { "Invalid elapsed time" }
         require(input.uptimeMs == null || input.elapsedMs != null && input.uptimeMs in 0..input.elapsedMs) { "Invalid uptime" }
         val voltage = input.voltageMv?.takeUnless { it == 0 || it == Int.MIN_VALUE }
@@ -62,6 +67,8 @@ object HistoryPolicy {
             sessionId = identity(input.sessionId), observationId = identity(input.observationId),
             currentNowUa = current(input.currentNowUa), currentAverageUa = current(input.currentAverageUa),
             chargeCounterUah = charge(input.chargeCounterUah), voltageMv = voltage, temperatureDeciC = temperature,
+            status = input.status.takeIf { it in 1..5 } ?: BatteryManager.BATTERY_STATUS_UNKNOWN,
+            plugged = input.plugged?.takeIf { it in 0..15 },
             health = input.health?.takeIf { it in 1..7 },
             etaBasis = text(input.etaBasis), boundaryReason = text(input.boundaryReason))
         val digest = MessageDigest.getInstance("SHA-256").digest(canonicalJson.encodeToString(BatterySample.serializer(), normalized).toByteArray())
@@ -91,6 +98,8 @@ object HistoryPolicy {
         return input.copy(observedMs = span, counterCoveredMs = counter,
             screenOnMs = screenOn, screenOffMs = screenOff,
             screenOnCoveredMs = screenOnCovered, screenOffCoveredMs = screenOffCovered,
+            dozeMs = input.dozeMs?.let(::duration),
+            screenOffDozeMs = input.screenOffDozeMs?.let(::duration)?.coerceAtMost(screenOff),
             cpuSuspendMs = input.cpuSuspendMs?.let(::duration),
             screenOffSuspendMs = input.screenOffSuspendMs?.let(::duration),
             deltaUah = input.deltaUah.takeUnless { counter == 0L },
@@ -98,9 +107,10 @@ object HistoryPolicy {
             screenOffUah = bucketCharge(input.screenOffUah, input.screenOffCoveredMs ?: input.screenOffMs, screenOffCovered ?: screenOff))
     }
 
-    fun session(input: ChargeSession): ChargeSession {
-        epoch(input.startTime)
-        input.endTime?.let(::epoch); input.lastSampleTime?.let(::epoch)
+    fun session(input: ChargeSession, formatVersion: Int = HISTORY_FORMAT_VERSION, clock: Clock = Clock.systemUTC()): ChargeSession {
+        val importTimeMs = clock.millis()
+        epoch(input.startTime, importTimeMs)
+        input.endTime?.let { epoch(it, importTimeMs) }; input.lastSampleTime?.let { epoch(it, importTimeMs) }
         val end = input.endTime ?: input.lastSampleTime ?: input.startTime
         require(end >= input.startTime) { "Session ends before it starts" }
         require(input.startLevel == null || input.startLevel in 0..100) { "Invalid start level" }
@@ -128,6 +138,8 @@ object HistoryPolicy {
         require(input.screenOnCoveredMs == null || input.screenOnCoveredMs >= 0) { "Invalid screen-on counter coverage" }
         require(input.screenOffCoveredMs == null || input.screenOffCoveredMs >= 0) { "Invalid screen-off counter coverage" }
         val covered = input.copy(
+            dozeMs = input.dozeMs?.takeIf { formatVersion >= 5 && it >= 0 }?.coerceAtMost(input.observedMs),
+            screenOffDozeMs = input.screenOffDozeMs?.takeIf { formatVersion >= 5 && it >= 0 }?.coerceAtMost(input.screenOffMs),
             screenOnCoveredMs = input.screenOnCoveredMs?.coerceAtMost(input.screenOnMs),
             screenOffCoveredMs = input.screenOffCoveredMs?.coerceAtMost(input.screenOffMs),
         )
@@ -137,27 +149,34 @@ object HistoryPolicy {
             closeReason = if (input.endTime == null) "Imported snapshot; monitoring was not resumed" else text(input.closeReason),
             peakPowerMw = input.peakPowerMw?.takeIf { it in 0..1_000_000L },
             chargerType = text(input.chargerType), capacityConfidence = text(input.capacityConfidence), capacityBasis = text(input.capacityBasis),
+            appCaptureStartMs = null, appCaptureEndMs = null,
             // An imported record never gets its end snapshot.
             appUsageStatus = input.appUsageStatus.takeUnless { it == AppUsageStatus.PENDING })
     }
     /** Values written after a session closes (per-app status, capacity estimate) and explanatory text are not its measurement. */
     private fun measured(s: ChargeSession) = s.copy(closeReason = null, appUsageStatus = null, appUsageBasis = null,
-        capacityEstimateMah = null, capacityConfidence = null, capacityBasis = null)
-    fun sameMeasurement(first: ChargeSession, second: ChargeSession): Boolean = measured(first) == measured(second)
+        capacityEstimateMah = null, capacityConfidence = null, capacityBasis = null, dozeMs = null, screenOffDozeMs = null)
+    // Formats 1–4 have no Doze evidence. Unknown values may be enriched, not treated as zero.
+    fun sameMeasurement(first: ChargeSession, second: ChargeSession): Boolean = measured(first) == measured(second) &&
+        (first.dozeMs == null || second.dozeMs == null || first.dozeMs == second.dozeMs) &&
+        (first.screenOffDozeMs == null || second.screenOffDozeMs == null || first.screenOffDozeMs == second.screenOffDozeMs)
     /** [incoming], keeping [previous]'s after-close values where the file has none (e.g. an export made before them). */
     fun mergeDerived(previous: ChargeSession, incoming: ChargeSession): ChargeSession {
         val usage = if (incoming.appUsageStatus != null) incoming else previous
         val capacity = if (incoming.capacityEstimateMah != null) incoming else previous
         return incoming.copy(appUsageStatus = usage.appUsageStatus, appUsageBasis = usage.appUsageBasis,
+            dozeMs = incoming.dozeMs ?: previous.dozeMs.takeIf { previous.endTime == incoming.endTime },
+            screenOffDozeMs = incoming.screenOffDozeMs ?: previous.screenOffDozeMs.takeIf { previous.endTime == incoming.endTime },
             capacityEstimateMah = capacity.capacityEstimateMah, capacityConfidence = capacity.capacityConfidence, capacityBasis = capacity.capacityBasis)
     }
     /** Plans raw rows before normalization can shrink coverage; keeps stale skips distinct from enrichment. */
-    internal fun planSessionImport(previous: ChargeSession?, incoming: ChargeSession, hasAppUsage: Boolean): SessionImportPlan {
-        // READY describes rows in this copy, not the source's omitted breakdown. A partial copy can
-        // still retain an existing breakdown through mergeDerived, and a full copy can enrich it later.
-        val candidate = session(if (!hasAppUsage && incoming.appUsageStatus == AppUsageStatus.READY)
-            incoming.copy(appUsageStatus = null, appUsageBasis = null) else incoming)
-        val stored = previous?.let(::session) ?: return SessionImportPlan(candidate, ImportSessionDisposition.ADDED)
+    internal fun planSessionImport(previous: ChargeSession?, incoming: ChargeSession,
+        formatVersion: Int = HISTORY_FORMAT_VERSION): SessionImportPlan {
+        // whittle: imports omit per-app evidence, so strip the incoming READY status/basis.
+        // Revisit only if portable per-app evidence is supported; mergeDerived keeps existing local evidence.
+        val candidate = session(if (incoming.appUsageStatus == AppUsageStatus.READY)
+            incoming.copy(appUsageStatus = null, appUsageBasis = null) else incoming, formatVersion)
+        val stored = previous?.let { session(it) } ?: return SessionImportPlan(candidate, ImportSessionDisposition.ADDED)
         val merged = mergeDerived(stored, candidate)
         if (stored == merged) return SessionImportPlan(stored, ImportSessionDisposition.UNCHANGED)
         if (sameMeasurement(stored, candidate)) return SessionImportPlan(merged, ImportSessionDisposition.UPDATED)
@@ -171,43 +190,6 @@ object HistoryPolicy {
         return SessionImportPlan(merged, ImportSessionDisposition.UPDATED)
     }
 
-    /** Called only after this transaction writes the validated breakdown (including a usage-only CSV). */
-    internal fun withImportedUsage(session: ChargeSession, rows: List<SessionAppUsage>): ChargeSession {
-        if (!session.source.startsWith("import:") || session.appUsageStatus != null || rows.isEmpty()) return session
-        return session.copy(appUsageStatus = AppUsageStatus.READY, appUsageBasis = rows.first().basis)
-    }
-
-    /** A usage-only write counts once, promoting an unchanged parent rather than counting it twice. */
-    internal fun planUsageImport(
-        parent: ImportSessionDisposition?,
-        localSource: String?,
-        parentExists: Boolean,
-        previous: List<SessionAppUsage>,
-        incoming: List<SessionAppUsage>,
-    ): UsageImportPlan? {
-        if (parent == ImportSessionDisposition.STALE || localSource != null && !localSource.startsWith("import:")) return null
-        require(parentExists) { "App usage belongs to a session that is not in history" }
-        val ordered = incoming.sortedBy { it.rank }
-        if (previous == ordered) return null
-        val updated = if (parent == ImportSessionDisposition.ADDED || parent == ImportSessionDisposition.UPDATED) 0 else 1
-        return UsageImportPlan(ordered, updated, if (parent == ImportSessionDisposition.UNCHANGED) -1 else 0)
-    }
-
-    /** Validates a file's per-app rows as whole per-session breakdowns: unique ranks 0..30, at most one "others" row. */
-    fun appUsage(input: List<SessionAppUsage>): List<SessionAppUsage> {
-        val rows = input.map { row ->
-            require(row.rank in 0 until SessionAppUsage.MAX_ROWS) { "Invalid app usage rank" }
-            require(row.powerMah.isFinite() && row.powerMah in 0.0..1_000_000.0) { "Invalid app usage charge; expected mAh" }
-            require(listOf(row.cpuTimeMs, row.foregroundTimeMs, row.backgroundTimeMs, row.wakelockTimeMs, row.mobileBytes, row.wifiBytes)
-                .all { it == null || it >= 0 }) { "Invalid app usage totals" }
-            row.copy(sessionId = checkNotNull(identity(row.sessionId)), packageName = row.packageName.also(::text))
-        }
-        for (group in rows.groupBy { it.sessionId }.values) {
-            require(group.distinctBy { it.rank }.size == group.size) { "Duplicate app usage rank" }
-            require(group.count { it.isOthers } <= 1) { "More than one aggregated app usage row" }
-        }
-        return rows
-    }
     fun sameOrigin(first: ChargeSession, second: ChargeSession): Boolean =
         originalId(first.sessionId) == originalId(second.sessionId) && first.startTime == second.startTime && first.type == second.type &&
             first.observationId?.let(::originalId) == second.observationId?.let(::originalId)
@@ -217,7 +199,8 @@ object HistoryPolicy {
 
     /**
      * Retention: samples and closed sessions older than [cutoffMs] (their app usage cascades), day summaries of days
-     * before the cutoff's day, and snapshots whose session is gone. One transaction.
+     * before the cutoff's day, snapshots whose session is gone, expired findings, and terminal actions.
+     * Pending/applied/unknown actions remain Undo/reconciliation authority. One transaction.
      */
     suspend fun purgeExpired(db: BatteryDatabase, cutoffMs: Long, zone: ZoneId = ZoneId.systemDefault()) {
         db.withTransaction {
@@ -225,6 +208,8 @@ object HistoryPolicy {
             db.sessionDao().purge(cutoffMs)
             db.dailySummaryDao().purgeBefore(retentionCutoffDay(cutoffMs, zone))
             db.appUsageDao().pruneOrphanSnapshots()
+            db.insightDao().purgeFindingsSeenBefore(cutoffMs)
+            db.insightDao().purgeTerminalActionsBefore(cutoffMs)
         }
     }
 }

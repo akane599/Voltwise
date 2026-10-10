@@ -85,6 +85,7 @@
     <string name="apps_details_share">Share of all apps</string>
     <string name="apps_details_not_counted">Android hasn\'t counted any use of this app since its stats last started over.</string>
 
+    <string name="apps_details_findings_title">Findings</string>
     <string name="apps_details_time_title">Time by state</string>
     <string name="apps_details_time_foreground">Foreground</string>
     <string name="apps_details_time_fgs">Foreground service</string>
@@ -142,14 +143,14 @@
 
     <string name="apps_details_history_title">Sessions on battery</string>
     <plurals name="apps_details_history_caption">
-        <item quantity="one">Among the top 30 in %1$d of %2$d session</item>
-        <item quantity="other">Among the top 30 in %1$d of %2$d sessions</item>
+        <item quantity="one">Individually recorded in %1$d of %2$d session</item>
+        <item quantity="other">Individually recorded in %1$d of %2$d sessions</item>
     </plurals>
     <string name="apps_details_history_empty">No sessions with per-app data in the last 30 days.</string>
     <string name="apps_details_history_failed">Couldn\'t read the saved sessions.</string>
     <string name="apps_details_history_series">Battery used</string>
     <string name="apps_details_history_info_title">About sessions on battery</string>
-    <string name="apps_details_history_info_body">Each bar is one time on battery in the last 30 days (up to 14), from unplug to plug-in. Voltwise reads Android\'s stats at both ends when it has access, and keeps the top 30 apps of each.\n\nA session where this app wasn\'t in the top 30 shows as 0.</string>
+    <string name="apps_details_history_info_body">Each bar is one time on battery in the last 30 days (up to 14), from unplug to plug-in. Voltwise reads Android\'s stats at both ends when it has access, and keeps the top 30 apps by battery use plus up to 10 additional apps that wake the phone.\n\nA session where this app wasn\'t individually stored shows as 0.</string>
     <string name="apps_details_nothing_else">Nothing else recorded for this app.</string>
     <string name="apps_summary_capacity_source">Android\'s estimate</string>
 </resources>

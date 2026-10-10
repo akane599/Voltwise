@@ -16,6 +16,7 @@ import com.akane.voltwise.battery.drain.DrainNotificationManager
 import com.akane.voltwise.battery.drain.formatDrainRate
 import com.akane.voltwise.battery.drain.formatTemperature
 import com.akane.voltwise.battery.service.BatteryMonitorService
+import com.akane.voltwise.battery.service.START_FROM_PROMPT_ACTION
 import com.akane.voltwise.settings.useFahrenheit
 import com.akane.voltwise.ui.navigation.Destinations
 
@@ -27,7 +28,8 @@ object Notifier {
 
     fun promptStartOnBoot(ctx: Context) {
         DrainNotificationManager.ensureChannel(ctx)
-        val startIntent = Intent(ctx, BatteryMonitorService::class.java)
+        // Keep the direct service PendingIntent: the notification tap grants the API 31+ FGS exemption.
+        val startIntent = Intent(ctx, BatteryMonitorService::class.java).setAction(START_FROM_PROMPT_ACTION)
         val pi = if (Build.VERSION.SDK_INT >= 26) {
             PendingIntent.getForegroundService(
                 ctx, 1, startIntent,

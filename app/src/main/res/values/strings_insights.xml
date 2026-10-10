@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Insights tab and its apply dialog (ui/screens/insights/). Keys prefixed insights_. Every engine enum
+     (FindingType, Metric, ActionType, Severity, Confidence) and every InsightMessageCode has its copy here. -->
+<resources>
+    <!-- Units and joins (not translated). -->
+    <string name="insights_unit_mah_per_h" translatable="false">mAh/h</string>
+    <string name="insights_unit_mb_per_h" translatable="false">MB/h</string>
+    <string name="insights_unit_celsius" translatable="false">°C</string>
+    <string name="insights_joined" translatable="false">%1$s · %2$s</string>
+
+    <!-- Tab, header and analysis -->
+    <string name="insights_tab">Insights</string>
+    <string name="insights_title">Insights</string>
+    <string name="insights_analyze">Analyze now</string>
+    <string name="insights_analyzing">Analyzing…</string>
+    <string name="insights_analyzing_description">Analyzing your battery data</string>
+    <string name="insights_last_analyzed">Last analyzed %1$s</string>
+    <string name="insights_never_analyzed">Not analyzed yet</string>
+    <string name="insights_loading">Loading insights…</string>
+
+    <!-- Screen states -->
+    <string name="insights_access_title">Fixes need Shizuku or root</string>
+    <string name="insights_access_body">Voltwise still spots problems and opens Android\'s settings so you can fix them by hand. Findings about single apps and one-tap fixes need access: install Shizuku, start it, then allow Voltwise when it asks (or grant root).</string>
+    <string name="insights_access_set_up">Set up access</string>
+    <string name="insights_learning_title">Still learning your usage</string>
+    <string name="insights_learning_body">%1$d of %2$d sessions with app data to compare. Findings about apps start once Voltwise has %2$d.</string>
+    <string name="insights_learning_body_no_access">%1$d of %2$d sessions with app data to compare. Voltwise can record app data with supported ADB access, Shizuku or root. Applying app restrictions requires Shizuku or root.</string>
+    <string name="insights_all_good_title">Nothing needs attention</string>
+    <string name="insights_all_good_body">No app or setting is draining more than usual. Voltwise checks again after each session.</string>
+    <string name="insights_never_title">No analysis yet</string>
+    <string name="insights_never_body">Analyze your recorded sessions to find apps and settings that drain more than usual.</string>
+    <string name="insights_error_title">Couldn\'t analyze your battery data</string>
+    <string name="insights_error_body">Your recorded sessions are unchanged. Try again in a moment.</string>
+    <string name="insights_try_again">Try again</string>
+
+    <!-- Sections and rows -->
+    <string name="insights_key_findings">Key findings</string>
+    <string name="insights_what_changed">What changed</string>
+    <string name="insights_applied_fixes">Applied fixes</string>
+    <string name="insights_details">Details</string>
+    <string name="insights_open_details">open details</string>
+    <string name="insights_subject_device">This phone</string>
+    <string name="insights_fix_applied">Fix applied</string>
+    <string name="insights_needs_access">Needs Shizuku or root</string>
+    <string name="insights_applied_at">Applied %1$s</string>
+    <string name="insights_undo">Undo</string>
+    <string name="insights_undo_description">Undo %1$s for %2$s</string>
+    <string name="insights_apply_description">%1$s for %2$s</string>
+
+    <!-- Evidence: "Drain: 3.2× usual" -->
+    <string name="insights_ratio">%1$s×</string>
+    <string name="insights_evidence_ratio">%1$s: %2$s usual</string>
+    <string name="insights_evidence_usually">%1$s: %2$s (usually %3$s)</string>
+    <string name="insights_evidence_plain">%1$s: %2$s</string>
+    <string name="insights_headline_vs_usual">%1$s vs. usual</string>
+    <string name="insights_headline_usually">%1$s · usually %2$s</string>
+    <plurals name="insights_confidence_sessions">
+        <item quantity="one">%1$s · %2$d session</item>
+        <item quantity="other">%1$s · %2$d sessions</item>
+    </plurals>
+    <string name="insights_change_values">%1$s → %2$s</string>
+    <string name="insights_trend_up">Went up</string>
+    <string name="insights_trend_down">Went down</string>
+    <string name="insights_effect_fell">%1$s fell %2$s since the change</string>
+    <string name="insights_effect_rose">%1$s rose %2$s since the change</string>
+    <string name="insights_effect_same">%1$s is about the same since the change</string>
+
+    <!-- Units -->
+    <string name="insights_unit_per_h">%1$s/h</string>
+    <string name="insights_unit_min_per_h">min/h</string>
+    <string name="insights_unit_per_year">%1$s per year</string>
+
+    <!-- Severity and confidence -->
+    <string name="insights_severity_info">Info</string>
+    <string name="insights_severity_low">Low</string>
+    <string name="insights_severity_medium">Medium</string>
+    <string name="insights_severity_high">High</string>
+    <string name="insights_severity_description">Severity: %1$s</string>
+    <string name="insights_confidence_low">Low confidence</string>
+    <string name="insights_confidence_medium">Medium confidence</string>
+    <string name="insights_confidence_high">High confidence</string>
+
+    <!-- FindingType -->
+    <string name="insights_type_app_drain_anomaly">Draining more than usual</string>
+    <string name="insights_type_new_heavy_app">New heavy drainer</string>
+    <string name="insights_type_background_runaway">Busy in the background</string>
+    <string name="insights_type_stuck_wakelock">Keeps the phone awake</string>
+    <string name="insights_type_wakeup_storm">Wakes the phone often</string>
+    <string name="insights_type_job_storm">Runs many jobs or syncs</string>
+    <string name="insights_type_doze_blocked">Doze isn\'t kicking in</string>
+    <string name="insights_type_doze_whitelisted_drainer">Exempt from Doze and draining</string>
+    <string name="insights_type_screen_off_drain_high">High drain with the screen off</string>
+    <string name="insights_type_trend">Changed over time</string>
+    <string name="insights_type_charging_at_full">Stays plugged in at full</string>
+    <string name="insights_type_hot_charging">Gets hot while charging</string>
+    <string name="insights_type_health_decline">Capacity is declining</string>
+    <string name="insights_type_background_location">Uses location or sensors in the background</string>
+    <string name="insights_type_background_radio">Uses the network in the background</string>
+    <string name="insights_type_lingering_foreground_service">Foreground service keeps running</string>
+    <string name="insights_type_action_effect">Effect of a fix</string>
+
+    <!-- Metric -->
+    <string name="insights_metric_power">Drain</string>
+    <string name="insights_metric_wakeup_alarms">Wakeup alarms</string>
+    <string name="insights_metric_partial_wakelocks">Wakelocks</string>
+    <string name="insights_metric_partial_wakelock_bg_share">Wakelocks in the background</string>
+    <string name="insights_metric_bg_time_share">Time in the background</string>
+    <string name="insights_metric_fgs_to_foreground_ratio">Foreground service vs. use</string>
+    <string name="insights_metric_cpu">CPU time</string>
+    <string name="insights_metric_foreground">Foreground time</string>
+    <string name="insights_metric_fgs">Foreground service time</string>
+    <string name="insights_metric_top">Time on screen</string>
+    <string name="insights_metric_wakelock">Wakelock time</string>
+    <string name="insights_metric_jobs">Background jobs</string>
+    <string name="insights_metric_job_time">Job time</string>
+    <string name="insights_metric_syncs">Syncs</string>
+    <string name="insights_metric_gps">GPS time</string>
+    <string name="insights_metric_sensor">Sensor time</string>
+    <string name="insights_metric_radio_active">Mobile radio time</string>
+    <string name="insights_metric_mobile_bytes">Mobile data</string>
+    <string name="insights_metric_wifi_bytes">Wi-Fi data</string>
+    <string name="insights_metric_window_drain_share">Share of all drain</string>
+    <string name="insights_metric_screen_off_drain">Screen-off drain</string>
+    <string name="insights_metric_deep_doze">Time in deep Doze</string>
+    <string name="insights_metric_screen_off_deep_sleep">Deep sleep with the screen off</string>
+    <string name="insights_metric_screen_on_drain">Screen-on drain</string>
+    <string name="insights_metric_daily_use">Daily use</string>
+    <string name="insights_metric_temperature">Peak temperature</string>
+    <string name="insights_metric_capacity">Capacity</string>
+    <string name="insights_metric_capacity_change">Capacity change</string>
+    <string name="insights_metric_plugged_at_full">Time plugged in at full</string>
+
+    <!-- ActionType: button labels name the outcome -->
+    <string name="insights_action_restrict_background">Restrict background</string>
+    <string name="insights_action_standby_restricted">Limit to Restricted</string>
+    <string name="insights_action_standby_rare">Limit to Rare</string>
+    <string name="insights_action_force_stop">Force stop</string>
+    <string name="insights_action_remove_doze_whitelist">Remove Doze exemption</string>
+    <string name="insights_action_open_app_settings">Open app settings</string>
+    <string name="insights_action_open_battery_optimization">Open battery optimization</string>
+    <string name="insights_action_enable_high_battery_alert">Turn on high-battery alert</string>
+
+    <!-- ActionType: exact effect -->
+    <string name="insights_effect_restrict_background">Applies Android\'s background-activity restriction to this app. Android exemptions can still allow background activity.</string>
+    <string name="insights_effect_standby_restricted">Moves this app to Android\'s Restricted standby bucket: its jobs and alarms run at most about once a day.</string>
+    <string name="insights_effect_standby_rare">Moves this app to Android\'s Rare standby bucket: its jobs and alarms are held back for hours.</string>
+    <string name="insights_effect_force_stop">Stops this app and its background work right now. It starts normally the next time you open it.</string>
+    <string name="insights_effect_remove_doze_whitelist">Removes this app from Android\'s battery optimization exemptions, so Doze limits it like other apps.</string>
+    <string name="insights_effect_open_app_settings">Opens this app\'s page in Android\'s settings. Nothing changes until you change it there.</string>
+    <string name="insights_effect_open_battery_optimization">Opens Android\'s battery optimization list. Nothing changes until you change it there.</string>
+    <string name="insights_effect_enable_high_battery_alert">Turns on Voltwise\'s high-battery alert, so you know when to unplug.</string>
+
+    <!-- ActionType: side effects -->
+    <string name="insights_side_restrict_background">Notifications, sync and widgets that rely on background work may arrive late or stop until you open the app.</string>
+    <string name="insights_side_standby_restricted">Messages and updates from this app may arrive hours late.</string>
+    <string name="insights_side_standby_rare">Messages and updates from this app may arrive late.</string>
+    <string name="insights_side_force_stop">Unsaved work in the app is lost, and its alarms and notifications stop until it runs again.</string>
+    <string name="insights_side_remove_doze_whitelist">While the phone is idle, this app may sync and notify later.</string>
+    <string name="insights_side_open_app_settings">None from Voltwise.</string>
+    <string name="insights_side_open_battery_optimization">None from Voltwise.</string>
+    <string name="insights_side_enable_high_battery_alert">You get a notification when the battery reaches the alert level.</string>
+
+    <!-- Apply confirmation -->
+    <string name="insights_apply_title">%1$s?</string>
+    <string name="insights_apply_side_effects">Side effects</string>
+    <string name="insights_apply_reversible">You can undo this later under Applied fixes.</string>
+    <string name="insights_apply_irreversible">This can\'t be undone.</string>
+    <string name="insights_apply_alert_reversible">You can turn the alert off again in Settings.</string>
+    <string name="insights_apply_privileged">Voltwise makes this change through Shizuku or root.</string>
+    <string name="insights_cancel">Cancel</string>
+
+    <!-- Action status -->
+    <string name="insights_status_prepared">Applying</string>
+    <string name="insights_status_applied">Applied</string>
+    <string name="insights_status_failed">Didn\'t apply</string>
+    <string name="insights_status_unknown">Result unknown</string>
+    <string name="insights_status_reverted">Undone</string>
+    <string name="insights_status_changed_externally">Changed outside Voltwise</string>
+    <string name="insights_status_one_shot">Done</string>
+
+    <!-- InsightMessageCode (results of apply, undo and analysis) -->
+    <string name="insights_message_applied">Fix applied.</string>
+    <string name="insights_message_restricted_to_rare">Android doesn\'t allow the Restricted bucket here, so the app was limited to Rare instead.</string>
+    <string name="insights_message_unknown">Couldn\'t confirm whether the change took effect.</string>
+    <string name="insights_message_reverted">Change undone.</string>
+    <string name="insights_message_changed_externally">This setting was changed outside Voltwise, so nothing was undone.</string>
+    <string name="insights_message_one_shot">Done.</string>
+    <string name="insights_message_one_shot_notifications_off">High-battery alert is on, but notifications are off.</string>
+    <string name="insights_message_read_failed">Couldn\'t read the app\'s current setting. Nothing was changed.</string>
+    <string name="insights_message_execution_failed">Android didn\'t accept the change.</string>
+    <string name="insights_message_not_applied">The setting didn\'t change and is still at its original value.</string>
+    <string name="insights_message_state_mismatch">The setting didn\'t change back. Try Undo again.</string>
+    <string name="insights_message_not_undoable">This fix can\'t be undone.</string>
+    <string name="insights_message_invalid_journal">This fix\'s record is incomplete, so it can\'t be undone.</string>
+    <string name="insights_message_not_privileged">This needs Shizuku or root access.</string>
+    <string name="insights_message_protected">Voltwise doesn\'t change system or essential apps.</string>
+    <string name="insights_message_not_installed">The app isn\'t installed anymore.</string>
+    <string name="insights_message_uid_mismatch">The app was reinstalled since this finding. Analyze again first.</string>
+    <string name="insights_message_shared_uid">This app shares its identity with other apps, so Voltwise won\'t change it.</string>
+    <string name="insights_message_role_holder">This app has a system role (home screen, phone, messages or keyboard), so Voltwise won\'t change it.</string>
+    <string name="insights_message_unsupported_sdk">This fix isn\'t available on your Android version.</string>
+    <string name="insights_message_invalid_subject">This fix doesn\'t apply to this finding.</string>
+    <string name="insights_message_invalid_package">This app\'s package name isn\'t valid, so nothing was changed.</string>
+    <string name="insights_message_unrestorable_prior">Voltwise couldn\'t undo this later, so nothing was changed.</string>
+    <string name="insights_message_inspection_failed">Couldn\'t check the app safely. Nothing was changed.</string>
+    <string name="insights_message_already_at_target">That setting is already in place.</string>
+    <string name="insights_message_finding_unavailable">This finding is gone after the latest analysis.</string>
+    <string name="insights_message_recommendation_unavailable">This fix isn\'t offered for the finding anymore.</string>
+    <string name="insights_message_analysis_failed">Couldn\'t analyze your battery data.</string>
+    <string name="insights_message_feedback_failed">Couldn\'t save your feedback.</string>
+
+    <!-- Shown when no settings page (the one asked for, the app details page or Settings itself) could open -->
+    <string name="insights_settings_unavailable">Settings page unavailable on this device.</string>
+</resources>

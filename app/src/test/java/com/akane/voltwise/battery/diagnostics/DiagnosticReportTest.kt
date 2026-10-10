@@ -21,6 +21,34 @@ class DiagnosticReportTest {
         assertTrue(report.contains("1970-01-01T00:00:01Z"))
         assertFalse(report.contains("private-"))
     }
+    @Test fun floatingPointValuesUseStableFixedPrecisionWhileIntegersRemainExact() {
+        val summary = ObservationSummary(
+            screenOn = com.akane.voltwise.battery.measurement.ObservedBucket(
+                energyCoveredMs = 1,
+                energyMwh = 475.4946355,
+            ),
+        )
+        val report = DiagnosticReport.observation(summary, false)
+        assertTrue(report.contains("Derived energy estimate: 475.495 mWh"))
+
+        val sample = BatterySample(timestamp = 1_000, levelPercent = 0, currentNowUa = -123,
+            chargeCounterUah = 123, status = 3, plugged = 0, voltageMv = 1,
+            temperatureDeciC = 1, health = 2, screenOn = true, energyNwh = 1,
+            etaMs = 0)
+        val reading = DiagnosticReport.reading(sample)
+        assertTrue(reading.contains("Temperature: 0.1 °C"))
+        assertTrue(reading.contains("Charge counter: 123 µAh"))
+        val smallValueReport = DiagnosticReport.observation(
+            ObservationSummary(screenOn = com.akane.voltwise.battery.measurement.ObservedBucket(
+                energyCoveredMs = 1,
+                energyMwh = 0.0001,
+            )),
+            false,
+        )
+        assertTrue(smallValueReport.contains("Derived energy estimate: 0 mWh"))
+        assertFalse(smallValueReport.contains("E-"))
+    }
+
     @Test fun emptyWindowCannotImplyMeasuredCpuSleepOrEnergy() {
         val report = DiagnosticReport.observation(ObservationSummary(), false)
         assertTrue(report.contains("Observed from: unavailable"))

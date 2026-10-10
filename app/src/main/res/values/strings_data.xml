@@ -33,7 +33,7 @@
     <string name="data_import_json">Import JSON</string>
     <string name="data_import_csv">Import CSV</string>
     <string name="data_import_info_title">About imports</string>
-    <string name="data_import_info_body">Imports add to your history and never start monitoring. Identical records are skipped. A file that conflicts with what is stored, or has an invalid record, is refused as a whole, so nothing is half imported.\n\nA CSV file holds readings, sessions or app usage; import them one file at a time. Files up to 64 MiB are accepted.</string>
+    <string name="data_import_info_body">Imports add to your history and never start monitoring. Identical records are skipped. A file that conflicts with what is stored, or has an invalid record, is refused as a whole, so nothing is half imported.\n\nA CSV file holds readings or sessions; import them one file at a time. Per-app usage from older exports is not imported, and Voltwise rebuilds it from new sessions. Files up to 64 MiB are accepted.</string>
     <string name="data_imported">Readings added: %1$s · sessions added: %2$s · extended: %3$s · unchanged: %4$s</string>
 
     <!-- Settings backup -->

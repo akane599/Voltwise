@@ -8,6 +8,7 @@ package com.akane.voltwise.ui
 object TestTags {
     const val ROOT = "root"
     const val TAB_NOW = "tab_now"
+    const val TAB_INSIGHTS = "tab_insights"
     const val TAB_HISTORY = "tab_history"
     const val TAB_APPS = "tab_apps"
     const val TAB_SETTINGS = "tab_settings"

@@ -11,6 +11,7 @@ import com.akane.voltwise.battery.apps.AppUsageStatus
 import com.akane.voltwise.battery.data.db.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,10 +74,23 @@ class HistoryImportTest {
         database().useDatabase { db ->
             val manager = ExportImportManager(context, db, HistoryMaintenance())
             try {
-                manager.importPayload(BatteryExport(listOf(sample(), sample(1700).copy(voltageMv = 4_000_000))))
+                manager.importPayload(BatteryExport(listOf(sample(), sample(1700).copy(voltageMv = 4_000_000)), listOf(closedSession())))
                 fail("Invalid voltage must fail")
             } catch (_: IllegalArgumentException) { }
             assertEquals(0, db.batteryDao().count())
+            assertEquals(0, db.sessionDao().count())
+        }
+    }
+    @Test fun invalidSessionCannotLeaveOtherPortableHistory() = runBlocking {
+        database().useDatabase { db ->
+            val manager = ExportImportManager(context, db, HistoryMaintenance())
+            try {
+                manager.importPayload(BatteryExport(listOf(sample()), listOf(closedSession(),
+                    closedSession().copy(sessionId = "invalid", startLevel = 101))))
+                fail("Invalid session level must fail")
+            } catch (_: IllegalArgumentException) { }
+            assertEquals(0, db.batteryDao().count())
+            assertEquals(0, db.sessionDao().count())
         }
     }
     @Test fun exportRangeSelectsOverlappingSessionsWithoutRewritingTheirTotals() = runBlocking {
@@ -141,84 +155,143 @@ class HistoryImportTest {
                 assertTrue(listOf(imported.chargerType, imported.energyNwh, imported.peakPowerMw, imported.peakTemperatureDeciC,
                     imported.screenOffSuspendMs, imported.capacityEstimateMah, imported.capacityConfidence, imported.capacityBasis,
                     imported.appUsageStatus, imported.appUsageBasis).all { it == null })
-                assertEquals(emptyList<SessionAppUsage>(), db.appUsageDao().sessionUsageRows("import:old"))
+                assertEquals(emptyList<SessionAppUsage>(), db.appUsageDao().sessionUsage("import:old").first())
             }
         } finally { file.delete() }
     }
-    @Test fun appUsageTravelsWithImportedSessionsAndLocalBreakdownsWin() = runBlocking {
-        database().useDatabase { source ->
-            source.sessionDao().insert(closedSession())
-            source.appUsageDao().replaceSessionUsage("session", AppUsageBasis.DELTA, appRows)
-            val payload = ExportImportManager(context, source, HistoryMaintenance()).snapshot(0, 3000, false, true)
-            assertEquals(HISTORY_FORMAT_VERSION, payload.formatVersion)
-            assertEquals(appRows, payload.appUsage.map { it.toRow() })
-            database().useDatabase { dest ->
-                val manager = ExportImportManager(context, dest, HistoryMaintenance())
-                assertEquals(HistoryImportResult(0, 1, 0, 0), manager.importPayload(payload))
-                val imported = dest.sessionDao().byId("import:session")!!
-                assertEquals(closedSession().copy(sessionId = "import:session", observationId = "import:observation", source = "import:BatteryManager observed interval"), imported)
-                assertEquals(appRows, dest.appUsageDao().sessionUsage("import:session").first().map { it.toRow() })
-                assertEquals(HistoryImportResult(0, 0, 0, 1), manager.importPayload(payload))
-                assertEquals(3, dest.appUsageDao().sessionUsageRows("import:session").size)
-                // An export made before the breakdown existed neither erases it nor counts as a change.
-                val earlier = payload.copy(sessions = payload.sessions.map { it.copy(appUsageStatus = AppUsageStatus.PENDING, appUsageBasis = null) }, appUsage = emptyList())
-                assertEquals(HistoryImportResult(0, 0, 0, 1), manager.importPayload(earlier))
-                assertEquals(AppUsageStatus.READY, dest.sessionDao().byId("import:session")?.appUsageStatus)
-                assertEquals(3, dest.appUsageDao().sessionUsageRows("import:session").size)
+    @Test fun formatFiveRoundTripExcludesAppEvidenceAndPreservesLocalBreakdowns() = runBlocking {
+        val file = File.createTempFile("history-test", ".json", context.cacheDir)
+        try {
+            database().useDatabase { source ->
+                val local = closedSession().copy(appCaptureStartMs = 1100, appCaptureEndMs = 1900)
+                source.sessionDao().insert(local)
+                source.batteryDao().insertSample(sample())
+                source.appUsageDao().replaceSessionUsage("session", AppUsageBasis.DELTA, appRows)
+                val localRows = source.appUsageDao().sessionUsage("session").first()
+                val localPoint = source.batteryDao().lastSample()
+                val sourceManager = ExportImportManager(context, source, HistoryMaintenance())
+                val payload = sourceManager.snapshot(0, 3000, true, true)
+                assertEquals(HISTORY_FORMAT_VERSION, payload.formatVersion)
+                sourceManager.exportJson(Uri.fromFile(file), 0, 3000, true, true)
+                val encoded = file.readText()
+                val exported = Json.parseToJsonElement(encoded).jsonObject
+                assertFalse(exported.containsKey("appUsage"))
+                assertFalse(exported.containsKey("appRows"))
+                assertFalse(encoded.contains("com.example.video"))
+                val exportedSession = exported.getValue("sessions").jsonArray.single().jsonObject
+                assertFalse(exportedSession.containsKey("appCaptureStartMs"))
+                assertFalse(exportedSession.containsKey("appCaptureEndMs"))
+                database().useDatabase { dest ->
+                    val manager = ExportImportManager(context, dest, HistoryMaintenance())
+                    assertEquals(HistoryImportResult(1, 1, 0, 0), manager.importJson(Uri.fromFile(file)))
+                    val imported = dest.sessionDao().byId("import:session")!!
+                    assertEquals(local.copy(sessionId = "import:session", observationId = "import:observation",
+                        source = "import:BatteryManager observed interval", appUsageStatus = null, appUsageBasis = null,
+                        appCaptureStartMs = null, appCaptureEndMs = null), imported)
+                    val importedPoint = dest.batteryDao().lastSample()!!
+                    assertEquals(sample().copy(id = importedPoint.id, sessionId = "import:session",
+                        observationId = "import:observation", source = "import:BatteryManager"), importedPoint)
+                    assertNull(dest.sessionDao().active())
+                    assertTrue(dest.appUsageDao().sessionUsage("import:session").first().isEmpty())
+                    assertEquals(HistoryImportResult(0, 0, 0, 2), manager.importJson(Uri.fromFile(file)))
+                    val legacy = JsonObject(exported + mapOf(
+                        "formatVersion" to JsonPrimitive(4),
+                        "appUsage" to Json.encodeToJsonElement(localRows.map { it.copy(powerMah = 99.0) }),
+                    ))
+                    file.writeText(legacy.toString())
+                    assertEquals(HistoryImportResult(0, 0, 0, 2), manager.importJson(Uri.fromFile(file)))
+                    assertEquals(imported, dest.sessionDao().byId("import:session"))
+                    assertTrue(dest.appUsageDao().usageForSessionsBetween(0, 3000).isEmpty())
+                    assertEquals(1, dest.batteryDao().count())
+                }
+                // A legacy copy cannot replace the device's native session or local breakdown.
+                assertEquals(HistoryImportResult(0, 0, 0, 2), sourceManager.importJson(Uri.fromFile(file)))
+                assertEquals(local, source.sessionDao().byId("session"))
+                assertEquals(localRows, source.appUsageDao().sessionUsage("session").first())
+                assertEquals(localPoint, source.batteryDao().lastSample())
             }
-            // Re-importing its own export leaves the device's local session and breakdown alone.
-            val foreign = payload.copy(appUsage = payload.appUsage.map { it.copy(powerMah = 99.0) })
-            assertEquals(HistoryImportResult(0, 0, 0, 1), ExportImportManager(context, source, HistoryMaintenance()).importPayload(foreign))
-            assertEquals(appRows, source.appUsageDao().sessionUsageRows("session").map { it.toRow() })
-        }
+        } finally { file.delete() }
     }
-    @Test fun staleParentKeepsItsNewerBreakdownWhileSameWindowUsageCanUpdateIt() = runBlocking {
+    @Test fun staleParentsAndReimportsPreserveExistingBreakdowns() = runBlocking {
         database().useDatabase { db ->
             val manager = ExportImportManager(context, db, HistoryMaintenance())
-            val rowsA = appRows.mapIndexed { rank, row -> row.toSessionUsage("session", rank, AppUsageBasis.DELTA) }
-            val rowsB = rowsA.map { it.copy(powerMah = 99.0) }
-            val newer = BatteryExport(sessions = listOf(closedSession()), appUsage = rowsA)
+            val local = closedSession().copy(sessionId = "local", observationId = "local-observation")
+            db.sessionDao().insert(local)
+            db.appUsageDao().replaceSessionUsage("local", AppUsageBasis.DELTA, appRows)
+            val localRows = db.appUsageDao().sessionUsage("local").first()
+            val newer = BatteryExport(sessions = listOf(closedSession()), formatVersion = 4)
             val older = newer.copy(sessions = listOf(closedSession().copy(
                 endTime = 1500, lastSampleTime = 1500, observedMs = 500, counterCoveredMs = 500,
                 screenOnMs = 500, deltaUah = 500, screenOnUah = 500,
-            )), appUsage = rowsB)
+            )))
             assertEquals(HistoryImportResult(0, 1, 0, 0), manager.importPayload(newer))
+            // Simulate a breakdown already present from an older version of the app.
+            db.appUsageDao().replaceSessionUsage("import:session", AppUsageBasis.DELTA, appRows)
             val retained = db.sessionDao().byId("import:session")
-            val retainedRows = db.appUsageDao().sessionUsageRows("import:session")
+            val retainedRows = db.appUsageDao().sessionUsage("import:session").first()
             assertEquals(HistoryImportResult(0, 0, 0, 1), manager.importPayload(older))
             assertEquals(retained, db.sessionDao().byId("import:session"))
-            assertEquals(retainedRows, db.appUsageDao().sessionUsageRows("import:session"))
-            assertEquals(HistoryImportResult(0, 0, 1, 0), manager.importPayload(newer.copy(appUsage = rowsB)))
-            assertEquals(HistoryPolicy.appUsage(rowsB), db.appUsageDao().sessionUsageRows("import:session"))
-            assertEquals(HistoryImportResult(0, 0, 0, 1), manager.importPayload(newer.copy(appUsage = rowsB)))
+            assertEquals(retainedRows, db.appUsageDao().sessionUsage("import:session").first())
+            assertEquals(HistoryImportResult(0, 0, 0, 1), manager.importPayload(newer))
+            assertEquals(retained, db.sessionDao().byId("import:session"))
+            assertEquals(retainedRows, db.appUsageDao().sessionUsage("import:session").first())
+            assertEquals(local, db.sessionDao().byId("local"))
+            assertEquals(localRows, db.appUsageDao().sessionUsage("local").first())
         }
     }
 
-    @Test fun appUsageWithoutItsSessionOrWithDuplicateRanksRollsBackTheImport() = runBlocking {
-        database().useDatabase { db ->
-            val manager = ExportImportManager(context, db, HistoryMaintenance())
-            val rows = appRows.mapIndexed { rank, row -> row.toSessionUsage("session", rank, AppUsageBasis.ABSOLUTE) }
-            for (bad in listOf(BatteryExport(sessions = listOf(closedSession()), appUsage = rows.map { it.copy(sessionId = "ghost") }),
-                BatteryExport(sessions = listOf(closedSession()), appUsage = rows.map { it.copy(rank = 0) }),
-                BatteryExport(sessions = listOf(closedSession()), appUsage = rows.map { it.copy(powerMah = Double.NaN) }))) {
-                try { manager.importPayload(bad); fail("Invalid app usage must fail") } catch (_: IllegalArgumentException) { }
-                assertEquals(0, db.sessionDao().count())
+    @Test fun malformedLegacyAppUsageIsIgnoredWhilePortableHistoryImports() = runBlocking {
+        val file = File.createTempFile("history-test", ".json", context.cacheDir)
+        try {
+            val portable = Json.encodeToJsonElement(BatteryExport.serializer(),
+                BatteryExport(listOf(sample()), listOf(closedSession()), formatVersion = 4)).jsonObject
+            val legacy = JsonObject(portable + ("appUsage" to Json.parseToJsonElement(
+                """[{"sessionId":"ghost","rank":"invalid","powerMah":"NaN"}]""")))
+            file.writeText(legacy.toString())
+            database().useDatabase { db ->
+                val manager = ExportImportManager(context, db, HistoryMaintenance())
+                assertEquals(HistoryImportResult(1, 1, 0, 0), manager.importJson(Uri.fromFile(file)))
+                assertEquals(1, db.batteryDao().count())
+                assertEquals(1, db.sessionDao().count())
+                val imported = db.sessionDao().byId("import:session")!!
+                assertEquals(1000L, imported.deltaUah)
+                assertNull(imported.appUsageStatus)
+                assertNull(imported.appUsageBasis)
+                assertTrue(db.appUsageDao().usageForSessionsBetween(0, 3000).isEmpty())
+                assertTrue(db.appUsageDao().sessionUsage("import:ghost").first().isEmpty())
+                assertTrue(db.appUsageDao().snapshots().isEmpty())
+                assertEquals(HistoryImportResult(0, 0, 0, 2), manager.importJson(Uri.fromFile(file)))
             }
-        }
+        } finally { file.delete() }
     }
-    @Test fun appUsageCsvAttachesToAnImportedSession() = runBlocking {
+
+    @Test fun legacyAppUsageCsvIsIgnoredAndPreservesStoredHistory() = runBlocking {
         val file = File.createTempFile("history-test", ".csv", context.cacheDir)
         try {
             database().useDatabase { db ->
                 val manager = ExportImportManager(context, db, HistoryMaintenance())
-                manager.importPayload(BatteryExport(sessions = listOf(closedSession())))
+                assertEquals(HistoryImportResult(0, 1, 0, 0), manager.importPayload(BatteryExport(sessions = listOf(closedSession()))))
+                db.appUsageDao().replaceSessionUsage("import:session", AppUsageBasis.DELTA, appRows)
+                val local = closedSession().copy(sessionId = "local", observationId = "local-observation")
+                db.sessionDao().insert(local)
+                db.batteryDao().insertSample(sample().copy(sessionId = "local", observationId = "local-observation"))
+                db.appUsageDao().replaceSessionUsage("local", AppUsageBasis.DELTA, appRows)
+                val retainedSessions = db.sessionDao().sessionsBetween(0, 3000)
+                val retainedRows = db.appUsageDao().usageForSessionsBetween(0, 3000)
+                val retainedPoint = db.batteryDao().lastSample()
                 file.writeText("sessionId,rank,uid,packageName,powerMah,cpuTimeMs,foregroundTimeMs,backgroundTimeMs,wakelockTimeMs,mobileBytes,wifiBytes,isOthers,basis,exportedAtEpochMs\n" +
-                    "session,0,10123,com.example.video,12.5,60000,900000,,,,4096,false,DELTA,1\n" +
+                    "session,0,10123,com.example.video,99.0,60000,900000,,,,4096,false,DELTA,1\n" +
                     "session,1,1000,android,3.25,,,,,,,false,DELTA,1\n" +
                     "session,2,-1,,0.75,,,,,,,true,DELTA,1\n")
-                assertEquals(HistoryImportResult(0, 0, 1, 0), manager.importCsv(Uri.fromFile(file)))
-                assertEquals(appRows, db.appUsageDao().sessionUsageRows("import:session").map { it.toRow() })
                 assertEquals(HistoryImportResult(0, 0, 0, 0), manager.importCsv(Uri.fromFile(file)))
+                assertEquals(retainedSessions, db.sessionDao().sessionsBetween(0, 3000))
+                assertEquals(retainedRows, db.appUsageDao().usageForSessionsBetween(0, 3000))
+                assertEquals(retainedPoint, db.batteryDao().lastSample())
+                assertEquals(HistoryImportResult(0, 0, 0, 0), manager.importCsv(Uri.fromFile(file)))
+                assertEquals(retainedSessions, db.sessionDao().sessionsBetween(0, 3000))
+                assertEquals(retainedRows, db.appUsageDao().usageForSessionsBetween(0, 3000))
+                assertEquals(retainedPoint, db.batteryDao().lastSample())
+                assertEquals(1, db.batteryDao().count())
             }
         } finally { file.delete() }
     }

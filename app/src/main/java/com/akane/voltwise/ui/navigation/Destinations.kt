@@ -18,6 +18,7 @@ object Destinations {
     const val EXTRA_DESTINATION = "destination"
 
     const val NOW = "now"
+    const val INSIGHTS = "insights"
     const val HISTORY = "history"
     const val APPS = "apps"
     const val SETTINGS = "settings"

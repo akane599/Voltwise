@@ -50,6 +50,7 @@
     <string name="option_6_months">6 ay</string>
     <string name="option_1_year">1 yıl</string>
     <string name="option_forever">Süresiz (depolama sınırları dahilinde)</string>
+    <string name="settings_retention_unset">Ayarlanmadı. Bir süre seçene kadar temizlik duraklatıldı.</string>
     <string name="monitor_channel">Pil izleme</string>
     <string name="monitor_channel_description">Canlı pil okumaları ve gözlemlenen tüketim; izleme sırasında sessiz</string>
     <string name="monitor_eta_full">Tahmini dolma süresi: %1$s</string>

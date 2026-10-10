@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Insights (ui/screens/insights/). Keys prefixed insights_. -->
+<resources>
+    <!-- Tab, header and analysis -->
+    <string name="insights_tab">Analiz</string>
+    <string name="insights_title">Analiz</string>
+    <string name="insights_analyze">Şimdi analiz et</string>
+    <string name="insights_analyzing">Analiz ediliyor…</string>
+    <string name="insights_analyzing_description">Pil verilerin analiz ediliyor</string>
+    <string name="insights_last_analyzed">Son analiz: %1$s</string>
+    <string name="insights_never_analyzed">Henüz analiz edilmedi</string>
+    <string name="insights_loading">Analiz yükleniyor…</string>
+
+    <!-- Screen states -->
+    <string name="insights_access_title">Düzeltmeler için Shizuku veya root gerekir</string>
+    <string name="insights_access_body">Voltwise sorunları yine de bulur ve elle düzeltebilmen için Android ayarlarını açar. Tek tek uygulamalarla ilgili bulgular ve tek dokunuşla düzeltmeler erişim gerektirir: Shizuku\'yu yükle, başlat ve sorduğunda Voltwise\'a izin ver (ya da root ver).</string>
+    <string name="insights_access_set_up">Erişimi ayarla</string>
+    <string name="insights_learning_title">Kullanımını hâlâ öğreniyor</string>
+    <string name="insights_learning_body">Karşılaştırılacak uygulama verisi olan %2$d oturumdan %1$d tanesi var. Uygulama bulguları, Voltwise\'ın %2$d oturumu olduğunda başlar.</string>
+    <string name="insights_learning_body_no_access">Karşılaştırılacak uygulama verisi olan %2$d oturumdan %1$d tanesi var. Voltwise uygulama verisini desteklenen ADB erişimi, Shizuku ya da root ile kaydedebilir. Uygulama kısıtlamalarını uygulamak Shizuku ya da root gerektirir.</string>
+    <string name="insights_all_good_title">İlgilenmen gereken bir şey yok</string>
+    <string name="insights_all_good_body">Hiçbir uygulama veya ayar normalden fazla pil harcamıyor. Voltwise her oturumdan sonra yeniden kontrol eder.</string>
+    <string name="insights_never_title">Henüz analiz yok</string>
+    <string name="insights_never_body">Normalden fazla pil harcayan uygulamaları ve ayarları bulmak için kayıtlı oturumlarını analiz et.</string>
+    <string name="insights_error_title">Pil verilerin analiz edilemedi</string>
+    <string name="insights_error_body">Kayıtlı oturumların değişmedi. Biraz sonra yeniden dene.</string>
+    <string name="insights_try_again">Yeniden dene</string>
+
+    <!-- Sections and rows -->
+    <string name="insights_key_findings">Önemli bulgular</string>
+    <string name="insights_what_changed">Neler değişti</string>
+    <string name="insights_applied_fixes">Uygulanan düzeltmeler</string>
+    <string name="insights_details">Ayrıntılar</string>
+    <string name="insights_open_details">ayrıntıları aç</string>
+    <string name="insights_subject_device">Bu telefon</string>
+    <string name="insights_fix_applied">Düzeltme uygulandı</string>
+    <string name="insights_needs_access">Shizuku veya root gerekir</string>
+    <string name="insights_applied_at">Uygulandı: %1$s</string>
+    <string name="insights_undo">Geri al</string>
+    <string name="insights_undo_description">%2$s için %1$s işlemini geri al</string>
+    <string name="insights_apply_description">%2$s için %1$s</string>
+
+    <!-- Evidence -->
+    <string name="insights_ratio">%1$s×</string>
+    <string name="insights_evidence_ratio">%1$s: normalin %2$s</string>
+    <string name="insights_evidence_usually">%1$s: %2$s (normalde %3$s)</string>
+    <string name="insights_evidence_plain">%1$s: %2$s</string>
+    <string name="insights_headline_vs_usual">%1$s, normale göre</string>
+    <string name="insights_headline_usually">%1$s · normalde %2$s</string>
+    <plurals name="insights_confidence_sessions">
+        <item quantity="one">%1$s · %2$d oturum</item>
+        <item quantity="other">%1$s · %2$d oturum</item>
+    </plurals>
+    <string name="insights_change_values">%1$s → %2$s</string>
+    <string name="insights_trend_up">Arttı</string>
+    <string name="insights_trend_down">Azaldı</string>
+    <string name="insights_effect_fell">%1$s, değişiklikten beri %2$s azaldı</string>
+    <string name="insights_effect_rose">%1$s, değişiklikten beri %2$s arttı</string>
+    <string name="insights_effect_same">%1$s, değişiklikten beri hemen hemen aynı</string>
+
+    <!-- Units -->
+    <string name="insights_unit_per_h">%1$s/sa</string>
+    <string name="insights_unit_min_per_h">dk/sa</string>
+    <string name="insights_unit_per_year">yılda %1$s</string>
+
+    <!-- Severity and confidence -->
+    <string name="insights_severity_info">Bilgi</string>
+    <string name="insights_severity_low">Düşük</string>
+    <string name="insights_severity_medium">Orta</string>
+    <string name="insights_severity_high">Yüksek</string>
+    <string name="insights_severity_description">Önem: %1$s</string>
+    <string name="insights_confidence_low">Düşük güven</string>
+    <string name="insights_confidence_medium">Orta güven</string>
+    <string name="insights_confidence_high">Yüksek güven</string>
+
+    <!-- FindingType -->
+    <string name="insights_type_app_drain_anomaly">Normalden fazla pil harcıyor</string>
+    <string name="insights_type_new_heavy_app">Yeni, çok pil harcayan uygulama</string>
+    <string name="insights_type_background_runaway">Arka planda çok meşgul</string>
+    <string name="insights_type_stuck_wakelock">Telefonu uyanık tutuyor</string>
+    <string name="insights_type_wakeup_storm">Telefonu sık sık uyandırıyor</string>
+    <string name="insights_type_job_storm">Çok iş veya senkronizasyon çalıştırıyor</string>
+    <string name="insights_type_doze_blocked">Doze devreye girmiyor</string>
+    <string name="insights_type_doze_whitelisted_drainer">Doze dışında ve pil harcıyor</string>
+    <string name="insights_type_screen_off_drain_high">Ekran kapalıyken yüksek tüketim</string>
+    <string name="insights_type_trend">Zamanla değişti</string>
+    <string name="insights_type_charging_at_full">Doluyken takılı kalıyor</string>
+    <string name="insights_type_hot_charging">Şarj olurken ısınıyor</string>
+    <string name="insights_type_health_decline">Kapasite düşüyor</string>
+    <string name="insights_type_background_location">Arka planda konum veya sensör kullanıyor</string>
+    <string name="insights_type_background_radio">Arka planda ağ kullanıyor</string>
+    <string name="insights_type_lingering_foreground_service">Ön plan hizmeti çalışmaya devam ediyor</string>
+    <string name="insights_type_action_effect">Bir düzeltmenin etkisi</string>
+
+    <!-- Metric -->
+    <string name="insights_metric_power">Tüketim</string>
+    <string name="insights_metric_wakeup_alarms">Uyandıran alarmlar</string>
+    <string name="insights_metric_partial_wakelocks">Wakelock\'lar</string>
+    <string name="insights_metric_partial_wakelock_bg_share">Arka plandaki wakelock\'lar</string>
+    <string name="insights_metric_bg_time_share">Arka planda geçen süre</string>
+    <string name="insights_metric_fgs_to_foreground_ratio">Ön plan hizmeti / kullanım</string>
+    <string name="insights_metric_cpu">CPU süresi</string>
+    <string name="insights_metric_foreground">Ön planda geçen süre</string>
+    <string name="insights_metric_fgs">Ön plan hizmeti süresi</string>
+    <string name="insights_metric_top">Ekranda geçen süre</string>
+    <string name="insights_metric_wakelock">Wakelock süresi</string>
+    <string name="insights_metric_jobs">Arka plan işleri</string>
+    <string name="insights_metric_job_time">İş süresi</string>
+    <string name="insights_metric_syncs">Eşitlemeler</string>
+    <string name="insights_metric_gps">GPS süresi</string>
+    <string name="insights_metric_sensor">Sensör süresi</string>
+    <string name="insights_metric_radio_active">Mobil radyo süresi</string>
+    <string name="insights_metric_mobile_bytes">Mobil veri</string>
+    <string name="insights_metric_wifi_bytes">Kablosuz veri</string>
+    <string name="insights_metric_window_drain_share">Toplam tüketimdeki payı</string>
+    <string name="insights_metric_screen_off_drain">Ekran kapalıyken tüketim</string>
+    <string name="insights_metric_deep_doze">Derin Doze süresi</string>
+    <string name="insights_metric_screen_off_deep_sleep">Ekran kapalıyken derin uyku</string>
+    <string name="insights_metric_screen_on_drain">Ekran açıkken tüketim</string>
+    <string name="insights_metric_daily_use">Günlük kullanım</string>
+    <string name="insights_metric_temperature">En yüksek sıcaklık</string>
+    <string name="insights_metric_capacity">Kapasite</string>
+    <string name="insights_metric_capacity_change">Kapasite değişimi</string>
+    <string name="insights_metric_plugged_at_full">Doluyken takılı kalma süresi</string>
+
+    <!-- ActionType: button labels -->
+    <string name="insights_action_restrict_background">Arka planı kısıtla</string>
+    <string name="insights_action_standby_restricted">Kısıtlı gruba al</string>
+    <string name="insights_action_standby_rare">Nadir gruba al</string>
+    <string name="insights_action_force_stop">Durmaya zorla</string>
+    <string name="insights_action_remove_doze_whitelist">Doze muafiyetini kaldır</string>
+    <string name="insights_action_open_app_settings">Uygulama ayarlarını aç</string>
+    <string name="insights_action_open_battery_optimization">Pil optimizasyonunu aç</string>
+    <string name="insights_action_enable_high_battery_alert">Yüksek pil seviyesi uyarısını aç</string>
+
+    <!-- ActionType: exact effect -->
+    <string name="insights_effect_restrict_background">Bu uygulamaya Android\'in arka plan etkinliği kısıtlamasını uygular. Android muafiyetleri arka plan etkinliğine yine de izin verebilir.</string>
+    <string name="insights_effect_standby_restricted">Bu uygulamayı Android\'in Kısıtlı bekleme grubuna alır: işleri ve alarmları en fazla günde bir kez çalışır.</string>
+    <string name="insights_effect_standby_rare">Bu uygulamayı Android\'in Nadir bekleme grubuna alır: işleri ve alarmları saatlerce ertelenir.</string>
+    <string name="insights_effect_force_stop">Bu uygulamayı ve arka plan işlerini hemen durdurur. Bir sonraki açışında normal şekilde başlar.</string>
+    <string name="insights_effect_remove_doze_whitelist">Bu uygulamayı Android\'in pil optimizasyonu muafiyetlerinden çıkarır; Doze onu da diğer uygulamalar gibi sınırlar.</string>
+    <string name="insights_effect_open_app_settings">Bu uygulamanın Android ayarlarındaki sayfasını açar. Orada değiştirene kadar hiçbir şey değişmez.</string>
+    <string name="insights_effect_open_battery_optimization">Android\'in pil optimizasyonu listesini açar. Orada değiştirene kadar hiçbir şey değişmez.</string>
+    <string name="insights_effect_enable_high_battery_alert">Voltwise\'ın yüksek pil uyarısını açar; böylece fişten ne zaman çekeceğini bilirsin.</string>
+
+    <!-- ActionType: side effects -->
+    <string name="insights_side_restrict_background">Arka plan işine dayanan bildirimler, eşitleme ve widget\'lar uygulamayı açana kadar gecikebilir veya durabilir.</string>
+    <string name="insights_side_standby_restricted">Bu uygulamadan gelen mesajlar ve güncellemeler saatlerce gecikebilir.</string>
+    <string name="insights_side_standby_rare">Bu uygulamadan gelen mesajlar ve güncellemeler gecikebilir.</string>
+    <string name="insights_side_force_stop">Uygulamadaki kaydedilmemiş işler kaybolur; alarmları ve bildirimleri yeniden çalışana kadar durur.</string>
+    <string name="insights_side_remove_doze_whitelist">Telefon boştayken bu uygulama daha geç eşitleyip bildirim gönderebilir.</string>
+    <string name="insights_side_open_app_settings">Voltwise tarafından yok.</string>
+    <string name="insights_side_open_battery_optimization">Voltwise tarafından yok.</string>
+    <string name="insights_side_enable_high_battery_alert">Pil uyarı seviyesine ulaştığında bildirim alırsın.</string>
+
+    <!-- Apply confirmation -->
+    <string name="insights_apply_title">%1$s?</string>
+    <string name="insights_apply_side_effects">Yan etkiler</string>
+    <string name="insights_apply_reversible">Bunu daha sonra Uygulanan düzeltmeler bölümünden geri alabilirsin.</string>
+    <string name="insights_apply_irreversible">Bu işlem geri alınamaz.</string>
+    <string name="insights_apply_alert_reversible">Uyarıyı Ayarlar\'dan yeniden kapatabilirsin.</string>
+    <string name="insights_apply_privileged">Voltwise bu değişikliği Shizuku veya root ile yapar.</string>
+    <string name="insights_cancel">İptal</string>
+
+    <!-- Action status -->
+    <string name="insights_status_prepared">Uygulanıyor</string>
+    <string name="insights_status_applied">Uygulandı</string>
+    <string name="insights_status_failed">Uygulanamadı</string>
+    <string name="insights_status_unknown">Sonuç bilinmiyor</string>
+    <string name="insights_status_reverted">Geri alındı</string>
+    <string name="insights_status_changed_externally">Voltwise dışında değiştirildi</string>
+    <string name="insights_status_one_shot">Yapıldı</string>
+
+    <!-- InsightMessageCode -->
+    <string name="insights_message_applied">Düzeltme uygulandı.</string>
+    <string name="insights_message_restricted_to_rare">Android burada Kısıtlı gruba izin vermiyor; uygulama bunun yerine Nadir gruba alındı.</string>
+    <string name="insights_message_unknown">Değişikliğin uygulanıp uygulanmadığı doğrulanamadı.</string>
+    <string name="insights_message_reverted">Değişiklik geri alındı.</string>
+    <string name="insights_message_changed_externally">Bu ayar Voltwise dışında değiştirildi; hiçbir şey geri alınmadı.</string>
+    <string name="insights_message_one_shot">Yapıldı.</string>
+    <string name="insights_message_one_shot_notifications_off">Yüksek pil uyarısı açık, ancak bildirimler kapalı.</string>
+    <string name="insights_message_read_failed">Uygulamanın geçerli ayarı okunamadı. Hiçbir şey değiştirilmedi.</string>
+    <string name="insights_message_execution_failed">Android değişikliği kabul etmedi.</string>
+    <string name="insights_message_not_applied">Ayar değişmedi, hâlâ eski değerinde.</string>
+    <string name="insights_message_state_mismatch">Ayar eski haline dönmedi. Geri al\'a yeniden dokun.</string>
+    <string name="insights_message_not_undoable">Bu düzeltme geri alınamaz.</string>
+    <string name="insights_message_invalid_journal">Bu düzeltmenin kaydı eksik; geri alınamaz.</string>
+    <string name="insights_message_not_privileged">Bunun için Shizuku veya root erişimi gerekir.</string>
+    <string name="insights_message_protected">Voltwise sistem uygulamalarını ve temel uygulamaları değiştirmez.</string>
+    <string name="insights_message_not_installed">Uygulama artık yüklü değil.</string>
+    <string name="insights_message_uid_mismatch">Uygulama bu bulgudan sonra yeniden yüklendi. Önce yeniden analiz et.</string>
+    <string name="insights_message_shared_uid">Bu uygulama kimliğini başka uygulamalarla paylaşıyor; Voltwise onu değiştirmez.</string>
+    <string name="insights_message_role_holder">Bu uygulamanın bir sistem rolü var (ana ekran, telefon, mesajlar veya klavye); Voltwise onu değiştirmez.</string>
+    <string name="insights_message_unsupported_sdk">Bu düzeltme Android sürümünde kullanılamıyor.</string>
+    <string name="insights_message_invalid_subject">Bu düzeltme bu bulguya uygulanmaz.</string>
+    <string name="insights_message_invalid_package">Bu uygulamanın paket adı geçerli değil; hiçbir şey değiştirilmedi.</string>
+    <string name="insights_message_unrestorable_prior">Voltwise bunu daha sonra geri alamazdı; hiçbir şey değiştirilmedi.</string>
+    <string name="insights_message_inspection_failed">Uygulama güvenli şekilde kontrol edilemedi. Hiçbir şey değiştirilmedi.</string>
+    <string name="insights_message_already_at_target">Bu ayar zaten uygulanmış.</string>
+    <string name="insights_message_finding_unavailable">Bu bulgu son analizden sonra artık yok.</string>
+    <string name="insights_message_recommendation_unavailable">Bu düzeltme artık bu bulgu için önerilmiyor.</string>
+    <string name="insights_message_analysis_failed">Pil verilerin analiz edilemedi.</string>
+    <string name="insights_message_feedback_failed">Geri bildirimin kaydedilemedi.</string>
+
+    <string name="insights_settings_unavailable">Bu cihazda ayarlar sayfası kullanılamıyor.</string>
+</resources>

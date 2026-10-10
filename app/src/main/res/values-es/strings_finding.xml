@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Detalles del hallazgo. Traducción automática: revisar. -->
+<resources>
+    <string name="finding_what_we_saw">Lo que vimos</string>
+    <string name="finding_why_it_matters">Por qué importa</string>
+    <string name="finding_what_it_is_not">Lo que no es</string>
+    <string name="finding_evidence">Datos</string>
+    <string name="finding_over_time">Con el tiempo</string>
+    <string name="finding_causes">Posibles causas</string>
+    <string name="finding_causes_hint">Pistas de esta sesión, no pruebas. Los wakelocks y motivos de activación con nombre indican dónde mirar.</string>
+    <string name="finding_what_you_can_do">Qué puedes hacer</string>
+
+    <string name="finding_usually">Normalmente %1$s</string>
+    <plurals name="finding_sessions">
+        <item quantity="one">%d sesión</item>
+        <item quantity="many">%d sesiones</item>
+        <item quantity="other">%d sesiones</item>
+    </plurals>
+    <plurals name="finding_days">
+        <item quantity="one">%d día</item>
+        <item quantity="many">%d días</item>
+        <item quantity="other">%d días</item>
+    </plurals>
+
+    <string name="finding_unit_hours">h</string>
+    <string name="finding_chart_usual_range">Rango habitual</string>
+    <string name="finding_chart_outside">Fuera del rango habitual</string>
+    <string name="finding_chart_usual">Habitual</string>
+    <string name="finding_chart_latest">Último</string>
+    <plurals name="finding_chart_summary">
+        <item quantity="one">%1$s del %2$s al %3$s: %4$d lectura, la última %5$s.</item>
+        <item quantity="many">%1$s del %2$s al %3$s: %4$d lecturas, la última %5$s.</item>
+        <item quantity="other">%1$s del %2$s al %3$s: %4$d lecturas, la última %5$s.</item>
+    </plurals>
+    <string name="finding_chart_summary_band">Rango habitual de %1$s a %2$s.</string>
+    <plurals name="finding_chart_summary_outside">
+        <item quantity="one">%d lectura queda fuera.</item>
+        <item quantity="many">%d lecturas quedan fuera.</item>
+        <item quantity="other">%d lecturas quedan fuera.</item>
+    </plurals>
+    <string name="finding_chart_summary_usual">Normalmente %1$s.</string>
+
+    <string name="finding_cause_kernel_wakelock">Wakelock del kernel</string>
+    <string name="finding_cause_wakeup_reason">Motivo de activación</string>
+    <string name="finding_cause_app">App</string>
+
+    <string name="finding_irreversible">No se puede deshacer</string>
+    <string name="finding_needs_access">%1$s necesita Shizuku o root</string>
+    <string name="finding_opens_settings">Abre los ajustes de Android. Nada cambia hasta que lo cambies allí.</string>
+    <string name="finding_not_a_problem">No es un problema</string>
+    <string name="finding_dismiss">Descartar</string>
+    <string name="finding_feedback_hint">No es un problema: Insights lo marcará menos a menudo. Descartar: oculto hasta que vuelva a aparecer.</string>
+
+    <string name="finding_gone_title">Este hallazgo ya no aparece</string>
+    <string name="finding_gone_body">Se descartó, o el último análisis ya no lo muestra.</string>
+    <string name="finding_loading">Cargando hallazgo…</string>
+
+    <string name="finding_seen_app_drain_anomaly">Esta app gastó mucha más batería por hora de lo habitual en las sesiones recientes con batería.</string>
+    <string name="finding_seen_new_heavy_app">Esta app apenas se notaba antes. En la última sesión con batería se llevó gran parte del consumo y pasó más tiempo en segundo plano que en primer plano.</string>
+    <string name="finding_seen_background_runaway">Esta app pasó mucho más tiempo en segundo plano de lo habitual.</string>
+    <string name="finding_seen_stuck_wakelock">Esta app mantuvo el teléfono despierto con wakelocks mucho más tiempo de lo habitual en segundo plano.</string>
+    <string name="finding_seen_wakeup_storm">Esta app disparó muchas más alarmas de activación por hora de lo habitual.</string>
+    <string name="finding_seen_job_storm">Esta app ejecutó muchas más tareas o sincronizaciones por hora de lo habitual.</string>
+    <string name="finding_seen_doze_blocked">Con la pantalla apagada, el teléfono pasó mucho menos tiempo en Doze profundo de lo habitual.</string>
+    <string name="finding_seen_doze_whitelisted_drainer">Esta app está exenta de la optimización de batería y tuvo actividad en segundo plano en la última sesión.</string>
+    <string name="finding_seen_screen_off_drain_high">La batería se gastó más rápido de lo habitual con la pantalla apagada.</string>
+    <string name="finding_seen_trend">En los últimos 7 días esto cambió respecto a las 3 semanas anteriores.</string>
+    <string name="finding_seen_charging_at_full">El teléfono estuvo enchufado al 100 por ciento durante horas varias veces en las últimas dos semanas.</string>
+    <string name="finding_seen_hot_charging">La batería se calentó mientras cargaba varias veces últimamente.</string>
+    <string name="finding_seen_health_decline">La capacidad estimada de la batería lleva semanas bajando de forma constante.</string>
+    <string name="finding_seen_background_location">Esta app usó la ubicación o los sensores en segundo plano más de lo habitual.</string>
+    <string name="finding_seen_background_radio">Esta app mantuvo activa la radio móvil o transfirió datos en segundo plano más de lo habitual.</string>
+    <string name="finding_seen_lingering_foreground_service">Esta app tuvo mucha actividad de servicios en primer plano en comparación con su uso en primer plano.</string>
+    <string name="finding_seen_action_effect">Compara la app antes y después de una solución que aplicaste en Voltwise.</string>
+
+    <string name="finding_matters_app_drain_anomaly">Un aumento repentino suele indicar algo atascado, como un bucle de sincronización o una actualización con errores, más que tu forma de usarla.</string>
+    <string name="finding_matters_new_heavy_app">Los nuevos consumidores en segundo plano suelen ser una instalación o actualización reciente que sigue trabajando cuando no la usas.</string>
+    <string name="finding_matters_background_runaway">El trabajo en segundo plano mantiene ocupados el procesador y las radios, y gasta batería sin que lo veas.</string>
+    <string name="finding_matters_stuck_wakelock">Mientras hay un wakelock el teléfono no puede dormir, así que la batería se gasta incluso con la pantalla apagada.</string>
+    <string name="finding_matters_wakeup_storm">Cada activación saca al teléfono del reposo. Muchas juntas suman e impiden que entre en Doze.</string>
+    <string name="finding_matters_job_storm">Las tareas y sincronizaciones pueden despertar el teléfono y usar la red. La actividad frecuente puede impedir que descanse.</string>
+    <string name="finding_matters_doze_blocked">El Doze profundo es como Android ahorra batería por la noche. Sin él, el consumo en reposo es mayor.</string>
+    <string name="finding_matters_doze_whitelisted_drainer">Las apps exentas siguen funcionando cuando Android las pausaría, así que su trabajo en segundo plano cuesta más.</string>
+    <string name="finding_matters_screen_off_drain_high">El consumo con pantalla apagada es batería que pierdes sin usar el teléfono. Si es mayor de lo habitual, algo lo mantiene despierto.</string>
+    <string name="finding_matters_trend">Un cambio duradero aparece aquí antes de que se note en el día a día.</string>
+    <string name="finding_matters_charging_at_full">Estar al 100 por ciento durante mucho tiempo envejece la batería más rápido, sobre todo si está caliente.</string>
+    <string name="finding_matters_hot_charging">El calor es lo que más desgasta una batería. Cargar en caliente lo acelera.</string>
+    <string name="finding_matters_health_decline">Menos capacidad significa menos autonomía por carga. Toda batería se desgasta con el tiempo, pero los hábitos de carga pueden frenarlo.</string>
+    <string name="finding_matters_background_location">La actividad de ubicación y sensores puede consumir batería en segundo plano. El contador medido indica qué actividad se observó.</string>
+    <string name="finding_matters_background_radio">La radio móvil activa consume mucho y sigue encendida un rato después de cada transferencia.</string>
+    <string name="finding_matters_lingering_foreground_service">Un servicio en primer plano mantiene la app viva y con permiso para trabajar, aunque creas que está cerrada.</string>
+    <string name="finding_matters_action_effect">Indica si la solución parece ayudar, para que la mantengas o la deshagas.</string>
+
+    <string name="finding_not_app_usage">No prueba que la app falle. Android informa del tiempo y la actividad por app, no de la energía exacta, y también cuenta el uso intenso que elegiste.</string>
+    <string name="finding_not_proxy">No mide energía. El tiempo en segundo plano, las activaciones y las tareas son señales de actividad, y la app puede necesitar algunas para mensajes, música o navegación.</string>
+    <string name="finding_not_device">No apunta a una sola app. Los wakelocks y motivos de activación con nombre son pistas de la sesión, no pruebas de la causa.</string>
+    <string name="finding_not_trend">No es una causa. Un cambio en cómo usas el teléfono también aparece aquí.</string>
+    <string name="finding_not_charging">No es un daño ya hecho. El calor y las horas al 100 por ciento desgastan durante meses; una sesión importa poco.</string>
+    <string name="finding_not_health">No es una capacidad exacta. Las estimaciones varían de una carga a otra; importa la tendencia de semanas más que un valor.</string>
+    <string name="finding_not_effect">Una asociación, no una prueba. Otros cambios de esos mismos días también afectan a las cifras.</string>
+</resources>

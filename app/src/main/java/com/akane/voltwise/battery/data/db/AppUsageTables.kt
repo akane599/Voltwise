@@ -21,9 +21,15 @@ data class AppSnapshot(
     val capturedAt: Long,           // wall clock, ms
     val windowStartedAt: Long?,     // batterystats window start; a different window means the stats were reset
     val windowStartCount: Long?,
+    val deepIdleMs: Long? = null,
+    val deepIdleCount: Long? = null,
+    val lightIdleMs: Long? = null,
+    val lightIdleCount: Long? = null,
+    val screenOffMs: Long? = null,
+    val wakersComplete: Boolean? = null,
 )
 
-/** One uid's totals in a snapshot: [AppUsageRow] minus `isOthers` (snapshots hold raw per-uid rows only). */
+/** Raw per-uid totals only: no aggregated `isOthers` row or since-charge session tag hints. */
 @Entity(
     tableName = "app_snapshot_uids",
     primaryKeys = ["snapshotId", "uid"],
@@ -40,11 +46,22 @@ data class AppSnapshotUid(
     val wakelockTimeMs: Long? = null,
     val mobileBytes: Long? = null,
     val wifiBytes: Long? = null,
+    val wakeupAlarms: Long? = null,
+    val partialWakelockCount: Long? = null,
+    val partialWakelockBgMs: Long? = null,
+    val jobCount: Long? = null,
+    val jobMs: Long? = null,
+    val syncCount: Long? = null,
+    val fgServiceMs: Long? = null,
+    val topMs: Long? = null,
+    val mobileActiveMs: Long? = null,
+    val gpsMs: Long? = null,
+    val sensorMs: Long? = null,
 )
 
 /**
- * A discharge session's per-app breakdown: ranked rows (0 = largest), the top 30 apps plus at most one
- * `isOthers` row. Deleted with its session (FK cascade). Exported and imported with the sessions.
+ * A discharge session's per-app breakdown: ranked rows (0 = largest), the top 30 apps plus up to 10 waker candidates and at most one
+ * `isOthers` row. Deleted with its session (FK cascade). Local evidence excluded from history export/import.
  */
 @Serializable
 @Entity(
@@ -67,21 +84,127 @@ data class SessionAppUsage(
     val wifiBytes: Long? = null,
     val isOthers: Boolean = false,
     val basis: AppUsageBasis,
+    val wakeupAlarms: Long? = null,
+    val partialWakelockCount: Long? = null,
+    val partialWakelockBgMs: Long? = null,
+    val jobCount: Long? = null,
+    val jobMs: Long? = null,
+    val syncCount: Long? = null,
+    val fgServiceMs: Long? = null,
+    val topMs: Long? = null,
+    val mobileActiveMs: Long? = null,
+    val gpsMs: Long? = null,
+    val sensorMs: Long? = null,
+    val topWakelockTag: String? = null,
+    val topAlarmTag: String? = null,
+    val topJobName: String? = null,
 ) {
     companion object {
-        /** Top 30 apps plus the "others" row. */
-        const val MAX_ROWS = 31
+        /** Top 30 apps, up to 10 additional waker candidates, plus the "others" row. */
+        const val MAX_ROWS = 41
     }
 }
 
-fun AppUsageRow.toSnapshotUid(snapshotId: Long) = AppSnapshotUid(snapshotId, uid, packageName, powerMah,
-    cpuTimeMs, foregroundTimeMs, backgroundTimeMs, wakelockTimeMs, mobileBytes, wifiBytes)
+fun AppUsageRow.toSnapshotUid(snapshotId: Long) = AppSnapshotUid(
+    snapshotId = snapshotId,
+    uid = uid,
+    packageName = packageName,
+    powerMah = powerMah,
+    cpuTimeMs = cpuTimeMs,
+    foregroundTimeMs = foregroundTimeMs,
+    backgroundTimeMs = backgroundTimeMs,
+    wakelockTimeMs = wakelockTimeMs,
+    mobileBytes = mobileBytes,
+    wifiBytes = wifiBytes,
+    wakeupAlarms = wakeupAlarms,
+    partialWakelockCount = partialWakelockCount,
+    partialWakelockBgMs = partialWakelockBgMs,
+    jobCount = jobCount,
+    jobMs = jobMs,
+    syncCount = syncCount,
+    fgServiceMs = fgServiceMs,
+    topMs = topMs,
+    mobileActiveMs = mobileActiveMs,
+    gpsMs = gpsMs,
+    sensorMs = sensorMs,
+)
 
-fun AppSnapshotUid.toRow() = AppUsageRow(uid, packageName, powerMah,
-    cpuTimeMs, foregroundTimeMs, backgroundTimeMs, wakelockTimeMs, mobileBytes, wifiBytes)
+fun AppSnapshotUid.toRow() = AppUsageRow(
+    uid = uid,
+    packageName = packageName,
+    powerMah = powerMah,
+    cpuTimeMs = cpuTimeMs,
+    foregroundTimeMs = foregroundTimeMs,
+    backgroundTimeMs = backgroundTimeMs,
+    wakelockTimeMs = wakelockTimeMs,
+    mobileBytes = mobileBytes,
+    wifiBytes = wifiBytes,
+    wakeupAlarms = wakeupAlarms,
+    partialWakelockCount = partialWakelockCount,
+    partialWakelockBgMs = partialWakelockBgMs,
+    jobCount = jobCount,
+    jobMs = jobMs,
+    syncCount = syncCount,
+    fgServiceMs = fgServiceMs,
+    topMs = topMs,
+    mobileActiveMs = mobileActiveMs,
+    gpsMs = gpsMs,
+    sensorMs = sensorMs,
+)
 
-fun AppUsageRow.toSessionUsage(sessionId: String, rank: Int, basis: AppUsageBasis) = SessionAppUsage(sessionId, rank,
-    uid, packageName, powerMah, cpuTimeMs, foregroundTimeMs, backgroundTimeMs, wakelockTimeMs, mobileBytes, wifiBytes, isOthers, basis)
+fun AppUsageRow.toSessionUsage(sessionId: String, rank: Int, basis: AppUsageBasis) = SessionAppUsage(
+    sessionId = sessionId,
+    rank = rank,
+    uid = uid,
+    packageName = packageName,
+    powerMah = powerMah,
+    cpuTimeMs = cpuTimeMs,
+    foregroundTimeMs = foregroundTimeMs,
+    backgroundTimeMs = backgroundTimeMs,
+    wakelockTimeMs = wakelockTimeMs,
+    mobileBytes = mobileBytes,
+    wifiBytes = wifiBytes,
+    isOthers = isOthers,
+    basis = basis,
+    wakeupAlarms = wakeupAlarms,
+    partialWakelockCount = partialWakelockCount,
+    partialWakelockBgMs = partialWakelockBgMs,
+    jobCount = jobCount,
+    jobMs = jobMs,
+    syncCount = syncCount,
+    fgServiceMs = fgServiceMs,
+    topMs = topMs,
+    mobileActiveMs = mobileActiveMs,
+    gpsMs = gpsMs,
+    sensorMs = sensorMs,
+    topWakelockTag = topWakelockTag,
+    topAlarmTag = topAlarmTag,
+    topJobName = topJobName,
+)
 
-fun SessionAppUsage.toRow() = AppUsageRow(uid, packageName, powerMah,
-    cpuTimeMs, foregroundTimeMs, backgroundTimeMs, wakelockTimeMs, mobileBytes, wifiBytes, isOthers)
+fun SessionAppUsage.toRow() = AppUsageRow(
+    uid = uid,
+    packageName = packageName,
+    powerMah = powerMah,
+    cpuTimeMs = cpuTimeMs,
+    foregroundTimeMs = foregroundTimeMs,
+    backgroundTimeMs = backgroundTimeMs,
+    wakelockTimeMs = wakelockTimeMs,
+    mobileBytes = mobileBytes,
+    wifiBytes = wifiBytes,
+    isOthers = isOthers,
+    wakeupAlarms = wakeupAlarms,
+    partialWakelockCount = partialWakelockCount,
+    partialWakelockBgMs = partialWakelockBgMs,
+    jobCount = jobCount,
+    jobMs = jobMs,
+    syncCount = syncCount,
+    fgServiceMs = fgServiceMs,
+    topMs = topMs,
+    mobileActiveMs = mobileActiveMs,
+    gpsMs = gpsMs,
+    sensorMs = sensorMs,
+    topWakelockTag = topWakelockTag,
+    topAlarmTag = topAlarmTag,
+    topJobName = topJobName,
+)

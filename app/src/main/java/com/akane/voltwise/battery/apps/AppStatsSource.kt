@@ -2,7 +2,7 @@ package com.akane.voltwise.battery.apps
 
 import com.akane.voltwise.battery.util.BatteryStatsParser
 
-/** On-demand `dumpsys batterystats -c --charged`; concurrent callers share one dump. */
+/** On-demand structured `dumpsys batterystats --proto --charged`; concurrent callers share one dump. */
 interface AppStatsSource {
     /** Cached for 60 s unless [force]; parsing happens off the main thread. */
     suspend fun snapshot(force: Boolean = false): AppStatsResult

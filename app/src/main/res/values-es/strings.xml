@@ -50,6 +50,7 @@
     <string name="option_6_months">6 meses</string>
     <string name="option_1_year">1 año</string>
     <string name="option_forever">Para siempre (dentro de los límites de almacenamiento)</string>
+    <string name="settings_retention_unset">Sin definir. La limpieza está en pausa hasta que elijas un periodo.</string>
     <string name="monitor_channel">Monitorización de batería</string>
     <string name="monitor_channel_description">Lecturas de batería y consumo observado; silenciosa durante la monitorización</string>
     <string name="monitor_eta_full">Carga completa estimada en %1$s</string>

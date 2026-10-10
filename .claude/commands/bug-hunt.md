@@ -19,9 +19,9 @@ Find bugs in code that already exists. For a diff you're about to push, `/code-r
 5. **One fix ticket per picked bug.**
    - Category by what the fix touches: UI → `interaction-design-implementation` (or `ui.tweak`); clear cause → `coding.normal`; unclear cause → `debugging`.
    - Declare its files. Description: the finding, then "First add a test that reproduces this and show it failing in your submit report; then fix it until the test passes."
-   - Verify: the module's unit test task. A bug that only shows on a device says so in the description, and gets checked with the android-emulator-qa skill after integration.
+   - Verify: the module's unit test task. A bug that only shows on a device says so in the description, and gets checked on a device after integration, through the route in CLAUDE.md → Devices.
    - Mark a crash or data-loss fix `--high-stakes`, so it gets a review before integration.
 
 6. **Record:** a "Bug hunt" row in PROGRESS.md's audit table (date, areas, found / fixed). If a bug reveals a convention worth keeping, add it as a live-rule with `add-rule`.
 
-For adopted projects, discover the actual module, build variant and test framework first. The `:app`/`Debug`/Compose screenshot commands above are examples for the generated scaffold, not universal commands. Keep existing Paparazzi, Roborazzi, XML or device-based checks; report unavailable visual validation explicitly.
+Report any visual or device validation that couldn't run.

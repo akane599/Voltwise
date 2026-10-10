@@ -24,14 +24,17 @@ import com.akane.voltwise.ui.screens.HistoryScreen
 import com.akane.voltwise.ui.screens.SessionDetailsScreen
 import com.akane.voltwise.ui.screens.SettingsScreen
 import com.akane.voltwise.ui.screens.StatusScreen
+import com.akane.voltwise.ui.screens.insights.FindingDetailsScreen
+import com.akane.voltwise.ui.screens.insights.InsightsScreen
 import com.akane.voltwise.ui.screens.now.NowScreen
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
 /**
  * Entries for every [Routes] key, rendered against [topLevelBackStack]'s currently visible tab.
- * One entry provider is shared by all 4 tabs: a detail route (e.g. [Routes.SettingsStatus]) is pushed onto
- * whichever tab is active when it's reached (Settings, or Apps from its access banner).
+ * One entry provider is shared by all 5 tabs: a detail route (e.g. [Routes.SettingsStatus]) is pushed onto
+ * whichever tab is active when it's reached (Settings; or the access banner or notice of Apps, Insights,
+ * FindingDetails, SessionDetails or AppDetails).
  *
  * Every tab's stack is decorated all the time, each with its own saved-state and ViewModel stores; `NavDisplay`
  * only gets the visible tab's entries. Switching tabs therefore pops nothing: each tab keeps its screen state
@@ -48,7 +51,8 @@ fun NavGraph(
     // One-shot: Now's Today card asks History for today's figures.
     var historyShowToday by rememberSaveable { mutableStateOf(false) }
     val entryProvider = entryProvider<NavKey> {
-        // Now -> Health, AppDetails (pushed); Today opens History › Days at today, "See all" opens Apps at its root
+        // Now -> Health, AppDetails, FindingDetails (pushed); Today opens History › Days at today, "See all" opens Apps
+        // and the Insights card opens Insights, each at its root
         entry<Routes.Now> {
             NowScreen(
                 onOpenHistory = {
@@ -58,6 +62,25 @@ fun NavGraph(
                 onOpenHealth = { topLevelBackStack.navigate(Routes.Health) },
                 onOpenApps = { topLevelBackStack.openRoot(Routes.Apps) },
                 onOpenApp = { uid, packageName -> topLevelBackStack.navigate(Routes.AppDetails(uid, packageName)) },
+                onOpenInsights = { topLevelBackStack.openRoot(Routes.Insights) },
+                onOpenFinding = { key -> topLevelBackStack.navigate(Routes.FindingDetails(key)) },
+            )
+        }
+
+        // Insights -> FindingDetails (pushed); its access notice -> Settings › Status
+        entry<Routes.Insights> {
+            InsightsScreen(
+                onOpenFinding = { key -> topLevelBackStack.navigate(Routes.FindingDetails(key)) },
+                onOpenAccessSetup = { topLevelBackStack.navigate(Routes.SettingsStatus) },
+            )
+        }
+
+        // FindingDetails -> Settings › Status (no access); Back, also once Not a problem / Dismiss took the finding away
+        entry<Routes.FindingDetails> { args ->
+            FindingDetailsScreen(
+                findingKey = args.key,
+                onBack = { popBack(args) },
+                onOpenAccessSetup = { topLevelBackStack.navigate(Routes.SettingsStatus) },
             )
         }
 
@@ -88,12 +111,14 @@ fun NavGraph(
             )
         }
 
+        // AppDetails -> FindingDetails (pushed, from its Findings); its access notice -> Settings › Status
         entry<Routes.AppDetails> { args ->
             AppDetailsScreen(
                 uid = args.uid,
                 packageName = args.packageName,
                 onBack = { popBack(args) },
                 onOpenAccessSetup = { topLevelBackStack.navigate(Routes.SettingsStatus) },
+                onOpenFinding = { key -> topLevelBackStack.navigate(Routes.FindingDetails(key)) },
             )
         }
 

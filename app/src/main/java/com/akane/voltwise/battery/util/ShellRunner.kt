@@ -2,6 +2,8 @@ package com.akane.voltwise.battery.util
 
 import android.content.Context
 import android.os.SystemClock
+import com.akane.voltwise.battery.actions.CommandPolicy
+import com.akane.voltwise.battery.actions.PrivilegedCommand
 import com.akane.voltwise.battery.shizuku.ShizukuBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -16,7 +18,7 @@ import java.util.concurrent.TimeUnit
 
 class ShellRunner internal constructor(
     private val probeMode: suspend () -> Mode,
-    private val runShizuku: suspend (String, Long) -> ShizukuBridge.RunResult,
+    private val runShizuku: suspend (String, Long, ExecutionPolicy) -> ShizukuBridge.RunResult,
     private val shizukuRunning: () -> Boolean,
     private val elapsedMs: () -> Long = SystemClock::elapsedRealtime,
     private val runRoot: suspend (String, Long) -> CommandOutput.Result = { cmd, timeoutMs ->
@@ -46,7 +48,11 @@ class ShellRunner internal constructor(
     sealed class Outcome {
         data class Success(val output: String, val mode: Mode) : Outcome()
 
-        data class Failure(val mode: Mode, val message: String) : Outcome()
+        data class Failure(
+            val mode: Mode,
+            val message: String,
+            val certainty: ExecutionCertainty = ExecutionCertainty.CONFIRMED,
+        ) : Outcome()
 
         data class NoAccess(val mode: Mode, val message: String) : Outcome()
     }
@@ -65,14 +71,36 @@ class ShellRunner internal constructor(
     @Volatile
     private var cachedModeAt = 0L
 
-    suspend fun exec(cmd: String, allowEmpty: Boolean = false): Outcome = commandLock.withLock {
+    suspend fun exec(cmd: String, allowEmpty: Boolean = false): Outcome = execute(cmd, allowEmpty, action = false)
+
+    suspend fun execAction(command: PrivilegedCommand): Outcome {
+        val argv = command.argv.toList()
+        require(CommandPolicy.allows(argv)) { "Unsupported action command" }
+        // su -c interprets shell text. These validated tokens contain no shell syntax or whitespace;
+        // single-space joining is lossless and needs no quoting. Keep this invariant executable.
+        check(argv.all { token -> token.isNotEmpty() && token.all {
+            it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it in "_.+-"
+        } }) { "Unsafe action token" }
+        return execute(argv.joinToString(" "), allowEmpty = true, action = true, policy = command.executionPolicy)
+    }
+
+    private suspend fun execute(
+        cmd: String,
+        allowEmpty: Boolean,
+        action: Boolean,
+        policy: ExecutionPolicy = ExecutionPolicy.READ_ONLY,
+    ): Outcome = commandLock.withLock {
         withContext(Dispatchers.IO) {
             // Select one backend for this read. A failure never falls through to another source.
             // Use the cached mode (detectMode() probes only when nothing is cached yet); callers
             // that need a fresh probe use detectMode(forceRefresh = true) explicitly.
             val mode = detectMode()
+            if (action && mode != Mode.SHIZUKU && mode != Mode.ROOT) {
+                val message = "Actions require Shizuku or root"
+                return@withContext Outcome.NoAccess(mode, message)
+            }
             val result = when (mode) {
-                Mode.SHIZUKU -> when (val result = runShizuku(cmd, TimeUnit.SECONDS.toMillis(CMD_TIMEOUT_SEC))) {
+                Mode.SHIZUKU -> when (val result = runShizuku(cmd, TimeUnit.SECONDS.toMillis(CMD_TIMEOUT_SEC), policy)) {
                     is ShizukuBridge.RunResult.Success -> CommandOutput.Result(result.output)
                     is ShizukuBridge.RunResult.Error -> {
                         currentCoroutineContext().ensureActive()
@@ -82,9 +110,12 @@ class ShellRunner internal constructor(
                             invalidateMode()
                             _access.value = Mode.NONE
                             _lastError.value = result.message
+                            if (policy == ExecutionPolicy.MUTATION && result.certainty == ExecutionCertainty.UNKNOWN) {
+                                return@withContext Outcome.Failure(mode, result.message, result.certainty)
+                            }
                             return@withContext Outcome.NoAccess(mode, result.message)
                         }
-                        CommandOutput.Result(error = result.message)
+                        CommandOutput.Result(error = result.message, certainty = result.certainty)
                     }
                 }
                 Mode.ROOT -> runRoot(cmd, CMD_TIMEOUT_SEC * 1000)
@@ -97,6 +128,9 @@ class ShellRunner internal constructor(
                 invalidateMode()
                 _access.value = Mode.NONE
                 _lastError.value = "Root access unavailable"
+                if (policy == ExecutionPolicy.MUTATION && result.certainty == ExecutionCertainty.UNKNOWN) {
+                    return@withContext Outcome.Failure(mode, "Root access unavailable", result.certainty)
+                }
                 return@withContext Outcome.NoAccess(mode, "Root access unavailable")
             }
             val error = result.error ?: when {
@@ -104,8 +138,11 @@ class ShellRunner internal constructor(
                 DumpOutput.failure(result.output) != null -> DumpOutput.failure(result.output)
                 else -> null
             }
-            _lastError.value = error
-            if (error == null) Outcome.Success(result.output, mode) else Outcome.Failure(mode, error)
+            // Action outcomes belong to their journal; preserve diagnostic errors unless access is lost.
+            if (!action) _lastError.value = error
+            if (error == null) Outcome.Success(result.output, mode) else Outcome.Failure(
+                mode, error, if (policy == ExecutionPolicy.MUTATION) result.certainty else ExecutionCertainty.CONFIRMED,
+            )
         }
     }
 

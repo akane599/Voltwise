@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bulgu ayrıntıları. Makine çevirisi: gözden geçirilmeli. -->
+<resources>
+    <string name="finding_what_we_saw">Ne gördük</string>
+    <string name="finding_why_it_matters">Neden önemli</string>
+    <string name="finding_what_it_is_not">Ne değildir</string>
+    <string name="finding_evidence">Veriler</string>
+    <string name="finding_over_time">Zaman içinde</string>
+    <string name="finding_causes">Olası nedenler</string>
+    <string name="finding_causes_hint">Bu oturumdan ipuçları, kanıt değil. Adı geçen wakelock\'lar ve uyanma nedenleri nereye bakılacağını gösterir.</string>
+    <string name="finding_what_you_can_do">Neler yapabilirsiniz</string>
+
+    <string name="finding_usually">Genelde %1$s</string>
+    <plurals name="finding_sessions">
+        <item quantity="one">%d oturum</item>
+        <item quantity="other">%d oturum</item>
+    </plurals>
+    <plurals name="finding_days">
+        <item quantity="one">%d gün</item>
+        <item quantity="other">%d gün</item>
+    </plurals>
+
+    <string name="finding_unit_hours">sa</string>
+    <string name="finding_chart_usual_range">Olağan aralık</string>
+    <string name="finding_chart_outside">Olağan aralığın dışında</string>
+    <string name="finding_chart_usual">Olağan</string>
+    <string name="finding_chart_latest">En son</string>
+    <plurals name="finding_chart_summary">
+        <item quantity="one">%1$s, %2$s ile %3$s arası: %4$d okuma, en son %5$s.</item>
+        <item quantity="other">%1$s, %2$s ile %3$s arası: %4$d okuma, en son %5$s.</item>
+    </plurals>
+    <string name="finding_chart_summary_band">Olağan aralık %1$s ile %2$s arası.</string>
+    <plurals name="finding_chart_summary_outside">
+        <item quantity="one">%d okuma bunun dışında.</item>
+        <item quantity="other">%d okuma bunun dışında.</item>
+    </plurals>
+    <string name="finding_chart_summary_usual">Genelde %1$s.</string>
+
+    <string name="finding_cause_kernel_wakelock">Çekirdek wakelock\'u</string>
+    <string name="finding_cause_wakeup_reason">Uyanma nedeni</string>
+    <string name="finding_cause_app">Uygulama</string>
+
+    <string name="finding_irreversible">Geri alınamaz</string>
+    <string name="finding_needs_access">%1$s için Shizuku veya root gerekir</string>
+    <string name="finding_opens_settings">Android ayarlarını açar. Orada siz değiştirene kadar hiçbir şey değişmez.</string>
+    <string name="finding_not_a_problem">Sorun değil</string>
+    <string name="finding_dismiss">Kapat</string>
+    <string name="finding_feedback_hint">Sorun değil: Insights bunu daha seyrek gösterir. Kapat: yeniden ortaya çıkana kadar gizlenir.</string>
+
+    <string name="finding_gone_title">Bu bulgu artık listede yok</string>
+    <string name="finding_gone_body">Kapatıldı ya da son analiz artık göstermiyor.</string>
+    <string name="finding_loading">Bulgu yükleniyor…</string>
+
+    <string name="finding_seen_app_drain_anomaly">Bu uygulama, son pil oturumlarında saat başına her zamankinden çok daha fazla pil kullandı.</string>
+    <string name="finding_seen_new_heavy_app">Bu uygulama önceden pek fark edilmiyordu. Son pil oturumunda tüketimin büyük bir kısmını oluşturdu ve arka planda ön plandakinden daha uzun süre kaldı.</string>
+    <string name="finding_seen_background_runaway">Bu uygulama arka planda her zamankinden çok daha uzun süre çalıştı.</string>
+    <string name="finding_seen_stuck_wakelock">Bu uygulama arka plandayken telefonu wakelock\'larla her zamankinden çok daha uzun süre uyanık tuttu.</string>
+    <string name="finding_seen_wakeup_storm">Bu uygulama saat başına her zamankinden çok daha fazla uyanma alarmı tetikledi.</string>
+    <string name="finding_seen_job_storm">Bu uygulama saat başına her zamankinden çok daha fazla iş veya senkronizasyon çalıştırdı.</string>
+    <string name="finding_seen_doze_blocked">Ekran kapalıyken telefonunuz derin Doze\'da her zamankinden çok daha az zaman geçirdi.</string>
+    <string name="finding_seen_doze_whitelisted_drainer">Bu uygulama pil optimizasyonundan muaf ve son oturumda arka planda etkinlik gösterdi.</string>
+    <string name="finding_seen_screen_off_drain_high">Ekran kapalıyken piliniz her zamankinden hızlı tükendi.</string>
+    <string name="finding_seen_trend">Son 7 günde bu, önceki 3 haftaya göre değişti.</string>
+    <string name="finding_seen_charging_at_full">Telefonunuz son iki haftada birkaç kez saatlerce yüzde 100\'de şarjda kaldı.</string>
+    <string name="finding_seen_hot_charging">Piliniz son zamanlarda şarj olurken birkaç kez ısındı.</string>
+    <string name="finding_seen_health_decline">Pilinizin tahmini kapasitesi haftalardır istikrarlı bir şekilde düşüyor.</string>
+    <string name="finding_seen_background_location">Bu uygulama arka planda konum veya sensörleri her zamankinden fazla kullandı.</string>
+    <string name="finding_seen_background_radio">Bu uygulama arka planda mobil radyoyu her zamankinden fazla etkin tuttu ya da veri aktardı.</string>
+    <string name="finding_seen_lingering_foreground_service">Bu uygulamanın ön plan hizmeti etkinliği, ön planda kullanımına kıyasla yüksekti.</string>
+    <string name="finding_seen_action_effect">Uygulamayı Voltwise\'ta uyguladığınız bir düzeltmeden önce ve sonra karşılaştırır.</string>
+
+    <string name="finding_matters_app_drain_anomaly">Ani bir artış genellikle kullanımınızdan değil, bir eşitleme döngüsü ya da hatalı bir güncelleme gibi takılan bir şeyden kaynaklanır.</string>
+    <string name="finding_matters_new_heavy_app">Yeni arka plan tüketicileri çoğunlukla siz kullanmazken de çalışmayı sürdüren yeni bir kurulum ya da güncellemedir.</string>
+    <string name="finding_matters_background_runaway">Arka plan işleri işlemciyi ve radyoları meşgul eder, siz bakmazken pili tüketir.</string>
+    <string name="finding_matters_stuck_wakelock">Wakelock tutulurken telefon uyuyamaz; pil ekran kapalıyken bile tükenir.</string>
+    <string name="finding_matters_wakeup_storm">Her uyanma telefonu uykudan çıkarır. Çok sayıda uyanma birikir ve Doze\'un devreye girmesini engeller.</string>
+    <string name="finding_matters_job_storm">İşler ve senkronizasyonlar telefonu uyandırabilir ve ağı kullanabilir. Sık etkinlik telefonun dinlenmesini engelleyebilir.</string>
+    <string name="finding_matters_doze_blocked">Derin Doze, Android\'in gece pil tasarrufu yapma yoludur. O olmadan bekleme tüketimi daha yüksektir.</string>
+    <string name="finding_matters_doze_whitelisted_drainer">Muaf uygulamalar Android\'in normalde duraklatacağı zamanlarda çalışmayı sürdürür; arka plan işleri daha pahalıya gelir.</string>
+    <string name="finding_matters_screen_off_drain_high">Ekran kapalıyken tüketim, telefonu kullanmadan kaybettiğiniz pildir. Her zamankinden yüksekse bir şey telefonu uyanık tutuyordur.</string>
+    <string name="finding_matters_trend">Kalıcı bir değişiklik, gün gün fark edilmeden önce burada görünür.</string>
+    <string name="finding_matters_charging_at_full">Uzun süre yüzde 100\'de kalmak, özellikle sıcakken, pili daha hızlı yaşlandırır.</string>
+    <string name="finding_matters_hot_charging">Pili en çok yıpratan şey ısıdır. Sıcakken şarj etmek bunu hızlandırır.</string>
+    <string name="finding_matters_health_decline">Daha düşük kapasite, şarj başına daha kısa pil ömrü demektir. Her pil zamanla yıpranır, ancak şarj alışkanlıkları bunu yavaşlatabilir.</string>
+    <string name="finding_matters_background_location">Konum ve sensör etkinliği arka planda pil tüketebilir. Ölçülen sayaç hangi etkinliğin gözlendiğini gösterir.</string>
+    <string name="finding_matters_background_radio">Etkin mobil radyo çok güç kullanır ve her aktarımdan sonra bir süre açık kalır.</string>
+    <string name="finding_matters_lingering_foreground_service">Ön plan hizmeti, kapalı sandığınızda bile uygulamayı canlı ve çalışmaya izinli tutar.</string>
+    <string name="finding_matters_action_effect">Düzeltmenin işe yarayıp yaramadığını gösterir; böylece onu tutabilir ya da geri alabilirsiniz.</string>
+
+    <string name="finding_not_app_usage">Uygulamanın bozuk olduğunun kanıtı değil. Android uygulama başına süre ve etkinlik bildirir, kesin enerji değil; sizin seçtiğiniz yoğun kullanım da sayılır.</string>
+    <string name="finding_not_proxy">Enerji ölçümü değil. Arka plan süresi, uyanmalar ve işler etkinlik işaretleridir; uygulamanın mesajlar, müzik ya da navigasyon için bazılarına ihtiyacı olabilir.</string>
+    <string name="finding_not_device">Tek bir uygulamaya bağlı değil. Adı geçen wakelock\'lar ve uyanma nedenleri oturumdan ipuçlarıdır, nedenin kanıtı değil.</string>
+    <string name="finding_not_trend">Bir neden değil. Telefonu kullanma şeklinizdeki bir değişiklik de burada görünür.</string>
+    <string name="finding_not_charging">Önceden oluşmuş bir hasar değil. Isı ve yüzde 100\'de geçen uzun saatler aylar içinde yıpratır; tek bir oturum az önemlidir.</string>
+    <string name="finding_not_health">Kesin bir kapasite değil. Tahminler şarjdan şarja değişir; tek bir değerden çok haftalar boyunca eğilim önemlidir.</string>
+    <string name="finding_not_effect">Bir ilişki, kanıt değil. Aynı günlerdeki başka değişiklikler de rakamları etkiler.</string>
+</resources>

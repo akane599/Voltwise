@@ -1,5 +1,6 @@
 package com.akane.voltwise.battery.apps
 
+import com.akane.voltwise.battery.data.db.AppSnapshotKind
 import com.akane.voltwise.battery.util.BatteryStatsParser
 import org.junit.Assert.*
 import org.junit.Test
@@ -21,6 +22,86 @@ class AppUsageSnapshotTest {
         mobileRxBytes = mobileRx, mobileTxBytes = mobileTx,
         wifiRxBytes = wifiRx, wifiTxBytes = wifiTx,
     )
+
+    @Test fun snapshotWakersReservePerKindCapsAndRankByEachKindsMetric() {
+        val kernels = (1..151).map { DeviceWaker("KERNEL_WAKELOCK", "k$it", 1, it.toLong()) }
+        val reasons = (1..51).map { DeviceWaker("WAKEUP_REASON", "r$it", it.toLong(), 1_000L - it) }
+        val selected = (kernels + reasons).selectSnapshotWakers()
+
+        assertEquals(200, selected.entries.size)
+        assertEquals((151 downTo 2).map { "k$it" } + (51 downTo 2).map { "r$it" },
+            selected.entries.map { it.name })
+        assertFalse(selected.complete)
+        assertEquals(selected.entries, selected.entries.selectSnapshotWakers().entries)
+        assertEquals(selected, (reasons + kernels).reversed().selectSnapshotWakers())
+    }
+
+    @Test fun snapshotWakersLendUnusedReasonSlotsToKernels() {
+        val kernels = (1..160).map { DeviceWaker("KERNEL_WAKELOCK", "k$it", 1, it.toLong()) }
+        val reasons = (1..10).map { DeviceWaker("WAKEUP_REASON", "r$it", it.toLong(), 1) }
+        val selected = (kernels + reasons).selectSnapshotWakers()
+
+        assertEquals(170, selected.entries.size)
+        assertEquals(kernels.reversed() + reasons.reversed(), selected.entries)
+        assertTrue(selected.complete)
+    }
+
+    @Test fun snapshotWakersLendUnusedKernelSlotsToReasons() {
+        val kernels = (1..20).map { DeviceWaker("KERNEL_WAKELOCK", "k$it", 1, it.toLong()) }
+        val reasons = (1..120).map { DeviceWaker("WAKEUP_REASON", "r$it", it.toLong(), 1) }
+        val selected = (kernels + reasons).selectSnapshotWakers()
+
+        assertEquals(140, selected.entries.size)
+        assertEquals(kernels.reversed() + reasons.reversed(), selected.entries)
+        assertTrue(selected.complete)
+    }
+
+    @Test fun snapshotWakersKeepReservedQuotasWhenBothKindsExceedTheBudget() {
+        val kernels = (1..300).map { DeviceWaker("KERNEL_WAKELOCK", "k$it", 1, it.toLong()) }
+        val reasons = (1..300).map { DeviceWaker("WAKEUP_REASON", "r$it", it.toLong(), 1) }
+        val selected = (kernels + reasons).selectSnapshotWakers()
+
+        assertEquals(200, selected.entries.size)
+        assertEquals(kernels.reversed().take(150) + reasons.reversed().take(50), selected.entries)
+        assertFalse(selected.complete)
+    }
+
+    @Test fun snapshotWakersDropOnlyFullyIdleEntriesAndBreakRankingTiesByName() {
+        val wakers = listOf(
+            DeviceWaker("KERNEL_WAKELOCK", "idle", 0, 0),
+            DeviceWaker("KERNEL_WAKELOCK", "timeOnly", 0, 10),
+            DeviceWaker("KERNEL_WAKELOCK", "countOnly", 1, 0),
+            DeviceWaker("WAKEUP_REASON", "idle", 0, 0),
+            DeviceWaker("WAKEUP_REASON", "z", 1, 10),
+            DeviceWaker("WAKEUP_REASON", "a", 1, 0),
+            DeviceWaker("WAKEUP_REASON", "timeOnly", 0, 10),
+        )
+        val selected = wakers.selectSnapshotWakers()
+
+        assertEquals(listOf("timeOnly", "countOnly", "a", "z", "timeOnly"), selected.entries.map { it.name })
+        assertTrue(selected.complete)
+        assertEquals(selected, wakers.reversed().selectSnapshotWakers())
+        assertTrue(emptyList<DeviceWaker>().selectSnapshotWakers().complete)
+    }
+
+    @Test fun snapshotHeaderCompletenessUsesSelectionAndPreservesUnknownOrIncompleteAuthority() {
+        val kernels = (1..151).map { DeviceWaker("KERNEL_WAKELOCK", "k$it", 1, 1) }
+        val reasons = (1..51).map { DeviceWaker("WAKEUP_REASON", "r$it", 1, 1) }
+        for ((wakers, expectedComplete) in listOf(kernels to true, reasons to true, (kernels + reasons) to false)) {
+            val snapshot = AppUsageSnapshot(1, 1, 1, emptyList(), deviceWakers = wakers, wakersComplete = true)
+            assertEquals(expectedComplete, snapshot.header("s", AppSnapshotKind.BASELINE).wakersComplete)
+        }
+        for (kind in listOf("KERNEL_WAKELOCK", "WAKEUP_REASON")) {
+            val wakers = (1..201).map { DeviceWaker(kind, "w$it", 1, 1) }
+            val snapshot = AppUsageSnapshot(1, 1, 1, emptyList(), deviceWakers = wakers, wakersComplete = true)
+            assertEquals(false, snapshot.header("s", AppSnapshotKind.BASELINE).wakersComplete)
+        }
+        val idle = (1..250).map { DeviceWaker("KERNEL_WAKELOCK", "idle$it", 0, 0) }
+        for (complete in listOf(true, false, null)) {
+            val snapshot = AppUsageSnapshot(1, 1, 1, emptyList(), deviceWakers = idle, wakersComplete = complete)
+            assertEquals(complete, snapshot.header("s", AppSnapshotKind.BASELINE).wakersComplete)
+        }
+    }
 
     @Test fun windowFieldsAreCopiedFromTheFullSnapshot() {
         val full = BatteryStatsParser.FullSnapshot(

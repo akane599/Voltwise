@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiagnosticLogTest {
+    @Test fun advancedIncompletePersistsAndAppearsInDiagnosticReport() {
+        val log = DiagnosticLog()
+        log.record(DiagnosticCode.ADVANCED_INCOMPLETE, 100)
+        log.record(DiagnosticCode.ADVANCED_INCOMPLETE, 200)
+        val restored = DiagnosticLog.decode(DiagnosticLog.encode(log.snapshot()))
+        assertEquals(listOf(DiagnosticEvent(DiagnosticCode.ADVANCED_INCOMPLETE, 100, 200, count = 2)), restored)
+        assertTrue("The report includes the fixed incomplete code and occurrence count",
+            DiagnosticReport.events(restored).contains("ADVANCED_INCOMPLETE · 2"))
+    }
     @Test fun repeatedFailuresCoalesceAndCountSaturatesWithoutGrowingStorage() {
         val log = DiagnosticLog()
         repeat(20_000) { log.record(DiagnosticCode.ADVANCED_READ_FAILED, it.toLong()) }

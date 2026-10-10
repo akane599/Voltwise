@@ -19,12 +19,14 @@ class CommandOutputTest {
     @Test fun timeoutIsNotAnEmptySuccessfulReading() {
         val result = CommandOutput.run(listOf("sleep", "2"), 50)
         assertEquals("Command timed out", result.error)
+        assertEquals(ExecutionCertainty.UNKNOWN, result.certainty)
     }
 
     @Test fun inheritedOutputPipeCannotDefeatTimeout() {
         val start = System.nanoTime()
         val result = CommandOutput.run(listOf("sh", "-c", "sleep 3 & printf 'partial'; sleep 0.05"), 100)
         assertEquals("Command timed out", result.error)
+        assertEquals(ExecutionCertainty.UNKNOWN, result.certainty)
         assertEquals("", result.output)
         assertTrue("Read must return before descendant exits", (System.nanoTime() - start) / 1_000_000 < 1500)
     }
@@ -43,6 +45,7 @@ class CommandOutputTest {
         worker.join(1500)
         assertFalse("Cancelled command must release its caller", worker.isAlive)
         assertEquals("Command interrupted", result.get().error)
+        assertEquals(ExecutionCertainty.UNKNOWN, result.get().certainty)
         assertEquals("", result.get().output)
     }
 

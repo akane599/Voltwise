@@ -1,6 +1,6 @@
 # Patterns, Conventions and Testing
 
-*Last Updated: 2026-10-08*
+*Last Updated: 2026-10-10*
 
 Project-wide rules (Kotlin/Compose conventions, ticketing, Gradle discipline) live in
 `.claude/live-rules/rules/` and are injected into every session. This page covers what the code
@@ -18,6 +18,11 @@ actually does.
 - **Single writer.** `BatteryRepository` serializes every write through `HistoryWriter` (FIFO).
   `SamplingController` confines sampler state to its `HandlerThread`. `ShellRunner` serializes commands
   with a `Mutex`, and `AppStatsRepository` shares one in-flight dump between callers.
+  `InsightRepository` and `InsightActionRepository` also serialize under a `Mutex`.
+- **Work that must outlive a screen** (finding feedback) runs on the injected application
+  `CoroutineScope`, never `viewModelScope` (`viewmodel/FindingDetailsViewModel.kt`).
+- **Privileged writes are journalled**: record PREPARED, run a `CommandPolicy`-checked command, read the
+  state back, then mark APPLIED/FAILED/UNKNOWN; startup `reconcile()` settles leftovers (see [insights.md](insights.md)).
 - **Pure logic split out** into `battery/measurement/` and small `internal` helpers (e.g.
   `selectShellMode`, `shouldMarkContinuityLoss`, `IdleCountdown`) so they can be JVM-tested.
 - **Seams for Android types:** `KeyValueStore` (SharedPreferences), `StatsShell` (shell),
@@ -37,8 +42,8 @@ actually does.
   `DiagnosticCode.APP_SCOPE_FAILED` instead of crashing the process.
 - A corrupt settings DataStore is replaced with empty preferences (`settings/SettingsDataStore.kt`,
   `ReplaceFileCorruptionHandler`), so the app starts on defaults; no diagnostic is recorded for it. Any other read
-  `IOException` yields defaults through `withDefaultsOnReadFailure()` (the unqualified Koin `DataStore`), so settings
-  collectors never crash the service; settings export uses the raw store (`named("rawSettingsDataStore")`) so it
+  `IOException` yields defaults through `withDefaultsOnReadFailure()` (the unqualified Koin `DataStore`) and retries the read
+  after 1 s (`retryWhen`), so settings collectors never crash the service and lifetime collectors still see later values; settings export uses the raw store (`named("rawSettingsDataStore")`) so it
   fails instead of writing an empty backup.
 - Renamed from BatStats (2026-10-08): applicationId and namespace are `com.akane.voltwise`, but the settings-export
   `appId = "app.batstats"` (`di/AppModules.kt`), `DiagnosticLog.HEADER = "BatStatsDiagnostics1"`, the history export

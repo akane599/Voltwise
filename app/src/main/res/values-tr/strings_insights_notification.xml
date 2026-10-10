@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_channel_name">Analiz</string>
+    <string name="insights_channel_description">Bir şey pilini tüketirken ara sıra bildirim</string>
+    <string name="insights_notification_title">Pil analizi</string>
+    <string name="insights_notification_text">Pilini bir şey tüketiyor olabilir. İncelemek için dokun.</string>
+</resources>

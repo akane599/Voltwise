@@ -10,8 +10,9 @@ import com.akane.voltwise.battery.apps.AppUsageStatus
 @TypeConverters(EnumConverters::class)
 @Database(
     entities = [BatterySample::class, ChargeSession::class, DailySummary::class,
-        AppSnapshot::class, AppSnapshotUid::class, SessionAppUsage::class],
-    version = 6,
+        AppSnapshot::class, AppSnapshotUid::class, SessionAppUsage::class,
+        SnapshotDeviceWaker::class, SessionDeviceWaker::class, InsightFindingEntity::class, InsightActionEntity::class],
+    version = 9,
     exportSchema = true
 )
 abstract class BatteryDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class BatteryDatabase : RoomDatabase() {
     abstract fun persistDao(): PersistDao
     abstract fun dailySummaryDao(): DailySummaryDao
     abstract fun appUsageDao(): AppUsageDao
+    abstract fun insightDao(): InsightDao
 
     companion object {
         @Volatile private var INSTANCE: BatteryDatabase? = null
@@ -91,6 +93,77 @@ abstract class BatteryDatabase : RoomDatabase() {
             }
         }
 
+        /** Additive only: existing rows retain unknown (null) insight measurements. */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `charge_sessions` ADD COLUMN `dozeMs` INTEGER")
+                db.execSQL("ALTER TABLE `charge_sessions` ADD COLUMN `screenOffDozeMs` INTEGER")
+                db.execSQL("ALTER TABLE `charge_sessions` ADD COLUMN `appCaptureStartMs` INTEGER")
+                db.execSQL("ALTER TABLE `charge_sessions` ADD COLUMN `appCaptureEndMs` INTEGER")
+                db.execSQL("ALTER TABLE `daily_summaries` ADD COLUMN `dozeMs` INTEGER")
+                db.execSQL("ALTER TABLE `daily_summaries` ADD COLUMN `screenOffDozeMs` INTEGER")
+                db.execSQL("ALTER TABLE `daily_summaries` ADD COLUMN `screenOffSuspendMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `wakeupAlarms` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `partialWakelockCount` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `partialWakelockBgMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `jobCount` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `jobMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `syncCount` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `fgServiceMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `topMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `mobileActiveMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `gpsMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshot_uids` ADD COLUMN `sensorMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `wakeupAlarms` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `partialWakelockCount` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `partialWakelockBgMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `jobCount` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `jobMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `syncCount` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `fgServiceMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `topMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `mobileActiveMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `gpsMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `sensorMs` INTEGER")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `topWakelockTag` TEXT")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `topAlarmTag` TEXT")
+                db.execSQL("ALTER TABLE `session_app_usage` ADD COLUMN `topJobName` TEXT")
+                db.execSQL("ALTER TABLE `app_snapshots` ADD COLUMN `deepIdleMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshots` ADD COLUMN `deepIdleCount` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshots` ADD COLUMN `lightIdleMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshots` ADD COLUMN `lightIdleCount` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshots` ADD COLUMN `screenOffMs` INTEGER")
+                db.execSQL("ALTER TABLE `app_snapshots` ADD COLUMN `wakersComplete` INTEGER")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `snapshot_device_wakers` (`snapshotId` INTEGER NOT NULL, `kind` TEXT NOT NULL, `name` TEXT NOT NULL, `count` INTEGER NOT NULL, `totalMs` INTEGER NOT NULL, PRIMARY KEY(`snapshotId`, `kind`, `name`), FOREIGN KEY(`snapshotId`) REFERENCES `app_snapshots`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `session_device_wakers` (`sessionId` TEXT NOT NULL, `kind` TEXT NOT NULL, `name` TEXT NOT NULL, `count` INTEGER NOT NULL, `totalMs` INTEGER NOT NULL, `rank` INTEGER NOT NULL, PRIMARY KEY(`sessionId`, `kind`, `name`), FOREIGN KEY(`sessionId`) REFERENCES `charge_sessions`(`sessionId`) ON UPDATE NO ACTION ON DELETE CASCADE )")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `insight_findings` (`key` TEXT NOT NULL, `type` TEXT NOT NULL, `uid` INTEGER, `packageName` TEXT, `severity` TEXT NOT NULL, `confidence` TEXT NOT NULL, `score` REAL NOT NULL, `firstSeenAt` INTEGER NOT NULL, `lastSeenAt` INTEGER NOT NULL, `status` TEXT NOT NULL, `feedbackMultiplier` REAL NOT NULL DEFAULT 1.0, `evidenceVersion` INTEGER NOT NULL, `evidenceJson` TEXT NOT NULL, PRIMARY KEY(`key`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_insight_findings_status` ON `insight_findings` (`status`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `insight_actions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `findingKey` TEXT NOT NULL, `type` TEXT NOT NULL, `packageName` TEXT, `uid` INTEGER, `userId` INTEGER NOT NULL, `status` TEXT NOT NULL, `priorStateVersion` INTEGER NOT NULL, `priorState` TEXT, `targetState` TEXT, `createdAt` INTEGER NOT NULL, `appliedAt` INTEGER, `revertedAt` INTEGER, `message` TEXT)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_insight_actions_status` ON `insight_actions` (`status`)")
+            }
+        }
+
+        /** Additive: legacy actions keep their journal data and use finding evidence as a fallback. */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `insight_actions` ADD COLUMN `metric` TEXT")
+            }
+        }
+
+        /** Legacy checkin text cannot certify app captures or waker attribution; retain browsing and undo history. */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE `charge_sessions` SET `appCaptureStartMs` = NULL, `appCaptureEndMs` = NULL")
+                // Migration connections may not enforce foreign keys, so retire children explicitly.
+                db.execSQL("DELETE FROM `app_snapshot_uids`")
+                db.execSQL("DELETE FROM `snapshot_device_wakers`")
+                db.execSQL("DELETE FROM `app_snapshots`")
+                db.execSQL("DELETE FROM `session_device_wakers`")
+                // Device payloads can also carry app attributions from those untrusted captures.
+                db.execSQL("UPDATE `insight_findings` SET `status` = 'RESOLVED' WHERE `status` = 'ACTIVE'")
+            }
+        }
+
         fun get(context: Context): BatteryDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -98,7 +171,7 @@ abstract class BatteryDatabase : RoomDatabase() {
                     BatteryDatabase::class.java,
                     "battery.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build().also { INSTANCE = it }
             }
     }
@@ -106,7 +179,7 @@ abstract class BatteryDatabase : RoomDatabase() {
 
 /**
  * Enum columns can hold any text (older builds, imports, hand edits), so reads never use `valueOf`: an unknown
- * name reads as null in the nullable columns, and as a documented fallback in the two NOT NULL ones.
+ * name reads as null in the nullable columns, and as a documented fallback in the NOT NULL ones.
  */
 class EnumConverters {
     @TypeConverter fun fromSessionType(t: SessionType?): String? = t?.name
@@ -122,4 +195,16 @@ class EnumConverters {
 
     @TypeConverter fun fromAppUsageBasis(t: AppUsageBasis?): String? = t?.name
     @TypeConverter fun toAppUsageBasis(s: String?): AppUsageBasis? = s?.let { name -> AppUsageBasis.entries.firstOrNull { it.name == name } }
+
+    @TypeConverter fun fromInsightFindingStatus(t: InsightFindingStatus?): String? = t?.name
+    /** Unknown lifecycle text is not an active recommendation; retain the row as RESOLVED. */
+    @TypeConverter fun toInsightFindingStatus(s: String?): InsightFindingStatus? = s?.let { name ->
+        InsightFindingStatus.entries.firstOrNull { it.name == name } ?: InsightFindingStatus.RESOLVED
+    }
+
+    @TypeConverter fun fromInsightActionStatus(t: InsightActionStatus?): String? = t?.name
+    /** Unknown journal text maps to UNKNOWN without claiming success; recovery requires a valid journal and live-state validation. */
+    @TypeConverter fun toInsightActionStatus(s: String?): InsightActionStatus? = s?.let { name ->
+        InsightActionStatus.entries.firstOrNull { it.name == name } ?: InsightActionStatus.UNKNOWN
+    }
 }

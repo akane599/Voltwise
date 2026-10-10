@@ -78,6 +78,10 @@ data class ChargeSession(
     // v6: null means legacy coverage is unknown.
     val screenOnCoveredMs: Long? = null,
     val screenOffCoveredMs: Long? = null,
+    val dozeMs: Long? = null,
+    val screenOffDozeMs: Long? = null,
+    val appCaptureStartMs: Long? = null,
+    val appCaptureEndMs: Long? = null,
 )
 
 enum class SessionType { CHARGE, DISCHARGE, PLUGGED, UNKNOWN }
@@ -94,6 +98,7 @@ data class CapacityEstimateRow(
     val capacityEstimateMah: Int,
     val capacityConfidence: String?,
     val capacityBasis: String?,
+    val source: String = "legacy",
 )
 
 /** Bounded representative chart rows; bucket discontinuities must remain visible. */

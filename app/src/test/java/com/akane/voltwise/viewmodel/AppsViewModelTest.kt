@@ -371,6 +371,7 @@ class AppsViewModelTest {
 
 /** A fake reader: [next] answers reads (a Ready result also becomes [cached], as the repository does). */
 class FakeAppStats : AppsRepository, AppDetailsRepository {
+    override fun findingsFor(uid: Int, packageName: String) = kotlinx.coroutines.flow.flowOf(emptyList<com.akane.voltwise.battery.insights.model.Finding>())
     override val cached = MutableStateFlow<BatteryStatsParser.FullSnapshot?>(null)
     override val shizuku = MutableStateFlow(ShizukuState(running = false, granted = false))
     var next: (force: Boolean) -> AppStatsResult = { AppStatsResult.NoAccess }

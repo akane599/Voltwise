@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,6 +51,7 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.akane.voltwise.R
 import com.akane.voltwise.battery.apps.AppLabel
+import com.akane.voltwise.battery.insights.model.FindingType
 import com.akane.voltwise.battery.shizuku.ShizukuBridge
 import com.akane.voltwise.ui.components.DetailTopBar
 import com.akane.voltwise.ui.components.AppLabelIcon
@@ -71,6 +75,10 @@ import com.akane.voltwise.ui.format.dayAwareTime
 import com.akane.voltwise.ui.format.formatNumber
 import com.akane.voltwise.ui.format.formatMah
 import com.akane.voltwise.ui.format.percentUnit
+import com.akane.voltwise.ui.screens.insights.SeverityChip
+import com.akane.voltwise.ui.screens.insights.effectLine
+import com.akane.voltwise.ui.screens.insights.evidenceLine
+import com.akane.voltwise.ui.screens.insights.titleRes
 import com.akane.voltwise.ui.theme.batColors
 import com.akane.voltwise.ui.theme.chartColors
 import com.akane.voltwise.ui.theme.numericHeadline
@@ -78,6 +86,7 @@ import com.akane.voltwise.ui.theme.spacing
 import com.akane.voltwise.viewmodel.AppDetailsEvent
 import com.akane.voltwise.viewmodel.AppDetailsUiState
 import com.akane.voltwise.viewmodel.AppDetailsViewModel
+import com.akane.voltwise.viewmodel.AppFinding
 import com.akane.voltwise.viewmodel.AppHistory
 import com.akane.voltwise.viewmodel.AppHistoryState
 import com.akane.voltwise.viewmodel.AppSessionUsage
@@ -98,8 +107,8 @@ private const val HARDWARE_COLUMNS = 3
 
 /**
  * AppDetails, wired: the Koin [AppDetailsViewModel] for [uid]/[packageName], a read of Android's per-app stats when
- * the screen starts (within the 60 s cache when coming from Apps), Shizuku's permission prompt, and "App info"
- * (Android's settings page for the package).
+ * the screen starts (within the 60 s cache when coming from Apps), Shizuku's permission prompt, "App info"
+ * (Android's settings page for the package), and [onOpenFinding] for a row of its Findings.
  */
 @Composable
 fun AppDetailsScreen(
@@ -107,6 +116,7 @@ fun AppDetailsScreen(
     packageName: String,
     onBack: () -> Unit,
     onOpenAccessSetup: () -> Unit,
+    onOpenFinding: (key: String) -> Unit,
     modifier: Modifier = Modifier,
     vm: AppDetailsViewModel = koinViewModel(parameters = { parametersOf(uid, packageName) }),
 ) {
@@ -125,6 +135,7 @@ fun AppDetailsScreen(
                 AppDetailsEvent.OpenAccessSetup -> onOpenAccessSetup()
                 AppDetailsEvent.AllowShizuku -> allowShizuku(context, state.problem, shizuku)
                 AppDetailsEvent.OpenAppInfo -> openAppInfo(context, state.packageName)
+                is AppDetailsEvent.OpenFinding -> onOpenFinding(event.key)
                 else -> vm.onEvent(event)
             }
         },
@@ -143,9 +154,9 @@ private fun openAppInfo(context: Context, packageName: String) {
 
 /**
  * AppDetails, stateless: [state] in, [onEvent] out. Back and "App info" on top; the app's hero (name, the dump's
- * window, battery used and its share); time by state; the app across stored sessions on battery; then CPU, network,
- * sensors and hardware, wakelocks, alarms, jobs and syncs (each only when Android counted something). Pull to
- * refresh forces a new read. From 840 dp the activity lists move to a second column.
+ * window, battery used and its share); its active Insights findings (only when there are any); time by state; the
+ * app across stored sessions on battery; then CPU, network, sensors and hardware, wakelocks, alarms, jobs and syncs
+ * (each only when Android counted something). Pull to refresh forces a new read. From 840 dp the activity lists move to a second column.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -167,6 +178,10 @@ fun AppDetailsContent(
             onRetry = { onEvent(AppDetailsEvent.Refresh) },
         )
         DetailsHero(state, Modifier.fillMaxWidth())
+        // What Insights found about this app comes before the raw numbers that back it; nothing when it found nothing.
+        if (state.findings.isNotEmpty()) {
+            FindingsPanel(state.findings, onOpen = { onEvent(AppDetailsEvent.OpenFinding(it)) }, Modifier.fillMaxWidth())
+        }
         usage?.let { TimePanel(it, Modifier.fillMaxWidth()) }
         // Right after "how much now": is this app always a drainer?
         when (val history = state.history) {
@@ -312,6 +327,43 @@ private fun TimePanel(usage: AppUsageDetails, modifier: Modifier = Modifier) {
 }
 
 private fun timeSegment(label: String, ms: Long?, color: Color) = BreakdownSegment(label, (ms ?: 0L).toDouble(), color)
+
+/** This app's active findings in Insights' order: what kind, how severe and the lead evidence. Each row opens it. */
+@Composable
+private fun FindingsPanel(findings: List<AppFinding>, onOpen: (key: String) -> Unit, modifier: Modifier = Modifier) {
+    Panel(
+        modifier,
+        title = stringResource(R.string.apps_details_findings_title),
+        // The rows carry their own side padding so each tap target and ripple spans the panel's width.
+        contentPadding = PaddingValues(top = MaterialTheme.spacing.md, bottom = MaterialTheme.spacing.xs),
+    ) {
+        findings.forEach { finding -> FindingRow(finding, onOpen = { onOpen(finding.key) }) }
+    }
+}
+
+/** One finding as a single TalkBack item: "Draining more than usual, Drain: 3.2× usual, Severity: High". */
+@Composable
+private fun FindingRow(finding: AppFinding, onOpen: () -> Unit) {
+    val spacing = MaterialTheme.spacing
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClickLabel = stringResource(R.string.insights_open_details), onClick = onOpen)
+            .minimumInteractiveComponentSize()
+            .padding(horizontal = spacing.md, vertical = spacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing.xxs)) {
+            Text(stringResource(finding.type.titleRes()), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            finding.evidence?.let { evidence ->
+                // A fix's effect compares after with before, not with a usual level: "Drain rose 20% since the change".
+                val line = (if (finding.type == FindingType.ACTION_EFFECT) effectLine(evidence) else null) ?: evidenceLine(evidence)
+                Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        SeverityChip(finding.severity)
+    }
+}
 
 /** CPU time and time kept awake; says so when the app had no wakelocks, alarms, jobs or syncs. */
 @Composable
@@ -464,7 +516,7 @@ private fun HistoryFailedPanel(onRetry: () -> Unit, modifier: Modifier = Modifie
     }
 }
 
-/** This app's mAh in each stored session on battery (oldest first; 0 outside a session's top 30), tap to select. */
+/** This app's mAh in each stored session on battery (oldest first; 0 when not individually stored), tap to select. */
 @Composable
 private fun HistoryPanel(history: AppHistory, modifier: Modifier = Modifier) {
     Panel(
@@ -495,7 +547,7 @@ private fun HistoryPanel(history: AppHistory, modifier: Modifier = Modifier) {
 }
 
 /**
- * One bar per session: its mAh (0 when outside the session's top 30). Spoken (and drawn when it fits) by its start
+ * One bar per session: its mAh (0 when not individually stored). Spoken (and drawn when it fits) by its start
  * day and time, so two sessions on one day get distinct TalkBack actions; the day alone under crowded bars.
  */
 internal fun historyBarEntries(sessions: List<AppSessionUsage>, formatter: TimeAxisFormatter): List<BarEntry> =

@@ -76,6 +76,75 @@ class BatteryStatsParserQuoteTest {
         assertEquals(true, snapshot.kernelWakelocks.isEmpty())
     }
 
+    @Test fun quotedWakeupReasonWithoutCommaIsUnquoted() {
+        val snapshot = BatteryStatsParser.parseCheckin("9,0,l,wr,\"rtc_alarm\",120,3")
+
+        assertEquals(listOf(BatteryStatsParser.WakeupReasonStats("rtc_alarm", 3, 120L)), snapshot.wakeupReasons)
+        assertEquals(0, snapshot.rejectedRecords)
+    }
+
+    @Test fun quotedWakeupReasonWithCommaKeepsTimeAndCount() {
+        val snapshot = BatteryStatsParser.parseCheckin("9,0,l,wr,\"57:qcom,smd-modem\",120,3")
+
+        assertEquals(listOf(BatteryStatsParser.WakeupReasonStats("57:qcom,smd-modem", 3, 120L)), snapshot.wakeupReasons)
+        assertEquals(0, snapshot.rejectedRecords)
+    }
+
+    @Test fun quotedLegacyKernelNamesKeepTimeAndCount() {
+        for (name in listOf("PowerManagerService", "57:qcom,smd-modem", "qcom,123,456,789", ",kernel", "foo\"bar,baz")) {
+            val snapshot = BatteryStatsParser.parseCheckin("9,0,l,kwl,\"$name\",7654,2")
+
+            assertEquals(listOf(BatteryStatsParser.KernelWakelockStats(name, 2, 7654L)), snapshot.kernelWakelocks)
+            assertEquals(0, snapshot.rejectedRecords)
+        }
+    }
+
+    @Test fun quotedModernKernelNamesKeepTimerTailAndMaxTime() {
+        for (name in listOf("PowerManagerService", "qcom,spmi:qcom,pon@800", "qcom,123,456")) {
+            val snapshot = BatteryStatsParser.parseCheckin("9,0,l,kwl,\"$name\",7654,2,0,600,7654")
+
+            assertEquals(
+                listOf(BatteryStatsParser.KernelWakelockStats(name, 2, 7654L, maxTimeMs = 600L)),
+                snapshot.kernelWakelocks,
+            )
+            assertEquals(0, snapshot.rejectedRecords)
+        }
+    }
+
+    @Test fun quotedWakerNamesRetainRawQuotesNextToCommas() {
+        val snapshot = BatteryStatsParser.parseCheckin("""
+            9,0,l,wr,"foo",bar",120,3
+            9,0,l,kwl,"foo",bar",7654,2,0,600,7654
+        """.trimIndent())
+
+        assertEquals(listOf(BatteryStatsParser.WakeupReasonStats("foo\",bar", 3, 120L)), snapshot.wakeupReasons)
+        assertEquals(
+            listOf(BatteryStatsParser.KernelWakelockStats("foo\",bar", 2, 7654L, maxTimeMs = 600L)),
+            snapshot.kernelWakelocks,
+        )
+        assertEquals(0, snapshot.rejectedRecords)
+    }
+
+    @Test fun malformedQuotedWakerTailsAreRejectedAndFollowingLinesSurvive() {
+        val snapshot = BatteryStatsParser.parseCheckin("""
+            9,0,l,wr,"bad,reason",unknown,2
+            9,0,l,wr,"bad,reason",100,unknown
+            9,0,l,kwl,"bad,kernel",unknown,2
+            9,0,l,kwl,"bad,kernel",100,unknown,0,60,100
+            9,0,l,wr,"unfinished,100,2
+            9,0,l,kwl,"unfinished,100,2,0,60,100
+            9,0,l,wr,"following",500,6
+            9,0,l,kwl,following_kernel,400,5,0,300,400
+        """.trimIndent())
+
+        assertEquals(6, snapshot.rejectedRecords)
+        assertEquals(listOf(BatteryStatsParser.WakeupReasonStats("following", 6, 500L)), snapshot.wakeupReasons)
+        assertEquals(
+            listOf(BatteryStatsParser.KernelWakelockStats("following_kernel", 5, 400L, maxTimeMs = 300L)),
+            snapshot.kernelWakelocks,
+        )
+    }
+
     @Test fun processAndKernelNamesKeepExistingFieldOffsets() {
         val snapshot = BatteryStatsParser.parseCheckin("""
             9,10001,l,pr,"foo"bar",100,200,300,4

@@ -1,6 +1,10 @@
 package com.akane.voltwise.settings
 
 import androidx.datastore.core.CorruptionException
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import io.github.mlmgames.settings.core.SettingsRepository
@@ -10,12 +14,18 @@ import io.github.mlmgames.settings.core.managers.MigrationResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -42,19 +52,28 @@ class SettingsDataStoreTest {
         val recovered = try {
             store.data.first()
         } catch (failure: CorruptionException) {
-            throw AssertionError("Corrupt settings must recover to empty preferences, not fail startup", failure)
+            throw AssertionError("Corrupt settings must recover to marked defaults, not fail startup", failure)
         }
-        assertEquals(emptyPreferences(), recovered)
+        assertTrue("Recovery must be distinguishable from a fresh install", recovered[SETTINGS_RECOVERED] == true)
         val repository = SettingsRepository(store, AppSettingsSchema)
         assertEquals(AppSettings(), repository.flow.first())
         val migrator = SettingsMigrator(store)
         assertTrue(migrator.run() is MigrationResult.Success)
         assertTrue(migrator.awaitMigrated())
+        assertNull("Migration must not invent a retention choice after corruption",
+            store.data.first()[intPreferencesKey("data_retention_index")])
         repository.set("lowBatteryThreshold", 15)
         scope.coroutineContext[Job]?.cancelAndJoin()
 
         val reopened = createSettingsDataStore(file, reopenedScope).withDefaultsOnReadFailure()
         assertEquals(15, SettingsRepository(reopened, AppSettingsSchema).flow.first().lowBatteryThreshold)
+        assertTrue("Recovery marker must survive a process restart", reopened.data.first()[SETTINGS_RECOVERED] == true)
+        val restartedMigrator = SettingsMigrator(reopened)
+        restartedMigrator.run()
+        assertNull("Retention remains paused after unrelated setting writes and restart",
+            com.akane.voltwise.battery.data.HistoryRetention(restartedMigrator, reopened,
+                com.akane.voltwise.battery.data.sampling.SamplerState(com.akane.voltwise.battery.data.sampling.FakeKeyValueStore())) { 1 }
+                .cutoff(1_790_000_000_000L, previousWallMs = 1_790_000_000_000L))
         assertEquals(SettingsMigrations.CURRENT_VERSION, reopened.data.first()[intPreferencesKey(SettingsMigrations.VERSION_KEY)])
     }
 
@@ -69,6 +88,26 @@ class SettingsDataStoreTest {
         assertEquals(emptyPreferences(), recovered)
         assertEquals(AppSettings(), SettingsRepository(store, AppSettingsSchema).flow.first())
         assertTrue("Read fallback must not replace the unreadable path", file.isDirectory)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun transientReadIOExceptionEmitsDefaultsThenRecoveredPreferences() = runTest {
+        val recovered = mutablePreferencesOf(booleanPreferencesKey("oled_black") to true)
+        var collections = 0
+        val store = object : DataStore<Preferences> {
+            override val data = flow {
+                collections++
+                if (collections == 1) throw IOException("Transient settings read failure")
+                emit(recovered)
+            }
+
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+                error("This fake only exercises reads")
+        }.withDefaultsOnReadFailure()
+
+        assertEquals(listOf(emptyPreferences(), recovered), store.data.take(2).toList())
+        assertEquals(2, collections)
+        assertEquals("Retry must back off instead of spinning", 1_000L, testScheduler.currentTime)
     }
 
     @Test fun exportReadIOExceptionReturnsErrorInsteadOfEmptyBackup() = runBlocking {

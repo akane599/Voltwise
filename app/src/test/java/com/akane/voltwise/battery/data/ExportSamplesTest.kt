@@ -69,6 +69,7 @@ class ExportSamplesTest {
         override suspend fun atTimestamp(timestamp: Long): List<BatterySample> = error("Not used")
         override suspend fun observedPoint(observationId: String, elapsedMs: Long): BatterySample? = error("Not used")
         override suspend fun lastSample(): BatterySample? = error("Not used")
+        override suspend fun lastLocalSample(): BatterySample? = error("Not used")
         override fun chartSamples(from: Long, to: Long, bucketMs: Long): Flow<List<BatterySample>> = error("Not used")
         override fun samplesForSession(sessionId: String): Flow<List<BatterySample>> = error("Not used")
         override suspend fun sessionChartSamples(sessionId: String, from: Long, to: Long, bucketMs: Long): List<SessionChartReading> = error("Not used")

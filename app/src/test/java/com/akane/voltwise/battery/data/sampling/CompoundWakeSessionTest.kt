@@ -97,8 +97,7 @@ class CompoundWakeSessionTest {
                     assertEquals("Wake must not trigger gap closure", before.gaps, after.gaps)
                     assertEquals("Wake must not trigger power closure", first.power, capture.point.power)
                     assertEquals(open.type, SessionReport.sessionType(capture.point.power))
-                    extremes = extremes.plus(null, 300, after.cpuSuspendMs - before.cpuSuspendMs,
-                        screenOffBefore = before.latest?.interactive == false)
+                    extremes = extremes.plus(null, 300)
                     val state = PersistPolicy.State(capture.point.elapsedMs, 3, 0, 80, "run")
                     if (PersistPolicy.decide(last, state, capture.point.boundary, capture.point.interactive,
                             poll = p.boundary == Boundary.SAMPLE) != null) {

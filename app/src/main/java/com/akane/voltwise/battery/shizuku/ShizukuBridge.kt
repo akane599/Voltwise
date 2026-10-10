@@ -30,6 +30,8 @@ import rikka.shizuku.Shizuku.UserServiceArgs
 import rikka.shizuku.ShizukuProvider
 import com.akane.voltwise.battery.util.CommandProtocol
 import com.akane.voltwise.battery.util.CommandOutput
+import com.akane.voltwise.battery.util.ExecutionCertainty
+import com.akane.voltwise.battery.util.ExecutionPolicy
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -50,7 +52,7 @@ class ShizukuBridge(private val context: Context) {
 
         const val PERMISSION_REQUEST_CODE = 1001
 
-        private const val SERVICE_VERSION = 6
+        private const val SERVICE_VERSION = 10
 
         private const val BIND_TIMEOUT_MS = 10_000L
         private const val DEFAULT_CMD_TIMEOUT_MS = 25_000L
@@ -69,7 +71,11 @@ class ShizukuBridge(private val context: Context) {
 
     sealed class RunResult {
         data class Success(val output: String) : RunResult()
-        data class Error(val message: String, val reason: Failure) : RunResult()
+        data class Error(
+            val message: String,
+            val reason: Failure,
+            val certainty: ExecutionCertainty = ExecutionCertainty.CONFIRMED,
+        ) : RunResult()
     }
 
     private val requestIds = AtomicLong(SystemClock.elapsedRealtimeNanos())
@@ -250,13 +256,17 @@ class ShizukuBridge(private val context: Context) {
         }
     }
 
-    suspend fun run(cmd: String, timeoutMs: Long = DEFAULT_CMD_TIMEOUT_MS): RunResult =
+    suspend fun run(
+        cmd: String,
+        timeoutMs: Long = DEFAULT_CMD_TIMEOUT_MS,
+        policy: ExecutionPolicy = ExecutionPolicy.READ_ONLY,
+    ): RunResult =
         withContext(Dispatchers.IO) {
             idle.begin()
-            try { runCommand(cmd, timeoutMs) } finally { idle.end() }
+            try { runCommand(cmd, timeoutMs, policy) } finally { idle.end() }
         }
 
-    private suspend fun runCommand(cmd: String, timeoutMs: Long): RunResult {
+    private suspend fun runCommand(cmd: String, timeoutMs: Long, policy: ExecutionPolicy): RunResult {
         if (!isRunning()) {
             return RunResult.Error("Shizuku is not running", Failure.NOT_RUNNING)
         }
@@ -273,19 +283,18 @@ class ShizukuBridge(private val context: Context) {
                 Failure.BIND_FAILED
             )
 
-        val first = execute(binder, cmd, timeoutMs)
-        return retryAfterTransportFailure(first) { failure ->
+        return retryAfterTransportFailure({ execute(binder, cmd, timeoutMs, policy) }, policy) { failure ->
             Log.d(TAG, "Retrying after transport failure: ${failure.message}")
             binding.forget(binder)
             val fresh = ensureBound() ?: return@retryAfterTransportFailure null
-            execute(fresh, cmd, timeoutMs)
+            execute(fresh, cmd, timeoutMs, policy)
         }
     }
 
     suspend fun runOrNull(cmd: String): String? =
         (run(cmd) as? RunResult.Success)?.output
 
-    private suspend fun execute(binder: IBinder, cmd: String, timeoutMs: Long): RunResult {
+    private suspend fun execute(binder: IBinder, cmd: String, timeoutMs: Long, policy: ExecutionPolicy): RunResult {
         if (!binder.isBinderAlive) {
             return RunResult.Error("Helper service is no longer alive", Failure.TRANSPORT)
         }
@@ -293,12 +302,12 @@ class ShizukuBridge(private val context: Context) {
             val result = runViaPipe(binder, cmd, timeoutMs)
             currentCoroutineContext().ensureActive()
             val running = ping()
-            classifyAfterRead(running, running && hasPermission(), result)
+            classifyAfterRead(running, running && hasPermission(), result, policy)
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
             Log.w(TAG, "Command transport failed: ${t.message}")
-            RunResult.Error(t.message ?: t.javaClass.simpleName, Failure.TRANSPORT)
+            RunResult.Error(t.message ?: t.javaClass.simpleName, Failure.TRANSPORT, ExecutionCertainty.UNKNOWN)
         }
     }
 
@@ -336,7 +345,7 @@ class ShizukuBridge(private val context: Context) {
                 continuation.invokeOnCancellation { cancelRemote(); worker.interrupt() }
                 worker.start()
             }
-        } ?: CommandOutput.Result(error = "Privileged read timed out")
+        } ?: CommandOutput.Result(error = "Privileged read timed out", certainty = ExecutionCertainty.UNKNOWN)
     }
 
     private suspend fun ensureBound(): IBinder? {
@@ -410,13 +419,34 @@ internal fun readPipeResult(
     accepted: Boolean,
     read: () -> CommandOutput.Result,
 ): CommandOutput.Result =
-    if (accepted) read() else CommandOutput.Result(error = "Helper command refused")
+    if (accepted) {
+        val result = read()
+        // Only helper-owned non-dispatch errors prove that an accepted mutation never started.
+        when (result.error) {
+            null, ShellUserService.NOT_STARTED_UNSUPPORTED, ShellUserService.NOT_STARTED_BUSY -> result
+            else -> result.copy(certainty = ExecutionCertainty.UNKNOWN)
+        }
+    } else CommandOutput.Result(error = "Helper command refused")
 
 internal fun classifyAfterRead(
     running: Boolean,
     permitted: Boolean,
     result: CommandOutput.Result?,
+    policy: ExecutionPolicy = ExecutionPolicy.READ_ONLY,
 ): ShizukuBridge.RunResult = when {
+    // A complete successful mutation response is proof even when authorization disappears afterward.
+    policy == ExecutionPolicy.MUTATION && result != null && result.error == null ->
+        ShizukuBridge.RunResult.Success(result.output)
+    policy == ExecutionPolicy.MUTATION -> ShizukuBridge.RunResult.Error(
+        result?.error ?: "Mutation response unavailable",
+        when {
+            !running -> ShizukuBridge.Failure.NOT_RUNNING
+            !permitted -> ShizukuBridge.Failure.NO_PERMISSION
+            result == null -> ShizukuBridge.Failure.TRANSPORT
+            else -> ShizukuBridge.Failure.COMMAND
+        },
+        result?.certainty ?: ExecutionCertainty.UNKNOWN,
+    )
     !running -> ShizukuBridge.RunResult.Error("Shizuku is not running", ShizukuBridge.Failure.NOT_RUNNING)
     !permitted -> ShizukuBridge.RunResult.Error("Shizuku permission not granted", ShizukuBridge.Failure.NO_PERMISSION)
     result == null -> ShizukuBridge.RunResult.Error("Helper protocol unavailable", ShizukuBridge.Failure.TRANSPORT)
@@ -425,10 +455,14 @@ internal fun classifyAfterRead(
 }
 
 internal suspend fun retryAfterTransportFailure(
-    first: ShizukuBridge.RunResult,
+    firstExecution: suspend () -> ShizukuBridge.RunResult,
+    policy: ExecutionPolicy = ExecutionPolicy.READ_ONLY,
     retry: suspend (ShizukuBridge.RunResult.Error) -> ShizukuBridge.RunResult?,
 ): ShizukuBridge.RunResult {
-    if (first !is ShizukuBridge.RunResult.Error || first.reason != ShizukuBridge.Failure.TRANSPORT) {
+    val first = firstExecution()
+    if (policy == ExecutionPolicy.MUTATION || first !is ShizukuBridge.RunResult.Error ||
+        first.reason != ShizukuBridge.Failure.TRANSPORT
+    ) {
         return first
     }
     return retry(first) ?: first

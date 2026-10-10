@@ -11,3 +11,4 @@ priority: 10
 - XML Views exist only in legacy code: ViewBinding, lifecycle-aware observers; no `findViewById`.
 
 - Adopted projects keep their existing architecture, collection types, DI, formatter and screenshot framework. Apply kit conventions to new work where compatible; adopting a new dependency or migrating an existing pattern needs a scoped ticket. Missing `@PreviewTest` support is not permission to install a new plugin.
+- Every activity PendingIntent gets its own request code (alerts 20, tile 21, widgets 22, insights 23) and is added to `ActivityPendingIntentRequestCodesTest`: PendingIntent identity ignores extras, so a shared code with `FLAG_UPDATE_CURRENT` rewrites another entry's `destination`.

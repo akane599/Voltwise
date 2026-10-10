@@ -1,11 +1,13 @@
 package com.akane.voltwise.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -19,7 +21,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -48,13 +53,14 @@ private data class TabItem(val route: Routes, val icon: ImageVector, val labelRe
 
 private val TAB_ITEMS = listOf(
     TabItem(Routes.Now, Icons.Rounded.Bolt, R.string.tab_now, TestTags.TAB_NOW),
+    TabItem(Routes.Insights, Icons.Rounded.Insights, R.string.insights_tab, TestTags.TAB_INSIGHTS),
     TabItem(Routes.History, Icons.Rounded.History, R.string.history, TestTags.TAB_HISTORY),
     TabItem(Routes.Apps, Icons.Rounded.Apps, R.string.tab_apps, TestTags.TAB_APPS),
     TabItem(Routes.Settings, Icons.Rounded.Settings, R.string.settings, TestTags.TAB_SETTINGS),
 )
 
 /**
- * The 4-tab shell: Now · History · Apps · Settings, bottom bar below [RAIL_MIN_WIDTH_DP], a rail
+ * The 5-tab shell: Now · Insights · History · Apps · Settings, bottom bar below [RAIL_MIN_WIDTH_DP], a rail
  * at or above it. [destination] is a `destination` deep-link extra value (see
  * `com.akane.voltwise.ui.navigation.Destinations`), applied once via [onDestinationHandled].
  * Every screen below gets app icons from [AppInfoSource] through [LocalAppIconLoader] and one shared time formatter
@@ -80,10 +86,25 @@ private fun TabShell(destination: String?, onDestinationHandled: () -> Unit) {
         }
     }
     // NavDisplay's own back handling only fires while its visible stack has more than one entry;
-    // this catches back at a non-Now tab's root (jump to Now) and is a no-op elsewhere since
-    // NavDisplay's handler takes precedence whenever it's enabled.
-    BackHandler(enabled = topLevelBackStack.selectedTab != Routes.Now) {
-        topLevelBackStack.onBack()
+    // this catches back at a non-Now tab's root (jump to Now), and NavDisplay's handler takes
+    // precedence whenever it's enabled. At Now's root it is on only while another tab holds a
+    // busy entry, which onBack() then shows instead of letting the activity finish and cancel that work; otherwise the
+    // system's own (predictive) back runs. isLeavingBlocked() isn't observable, so it is re-read on each recomposition
+    // (every tab switch). If the work ended since, onBack() returns false and the press goes on to the activity's own
+    // back once this handler is off.
+    val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    var passBackOn by remember { mutableStateOf(false) }
+    BackHandler(
+        enabled = !passBackOn &&
+            (topLevelBackStack.selectedTab != Routes.Now || topLevelBackStack.isLeavingBlocked()),
+    ) {
+        if (!topLevelBackStack.onBack()) passBackOn = true
+    }
+    if (passBackOn) {
+        LaunchedEffect(Unit) {
+            backDispatcher?.onBackPressed()
+            passBackOn = false
+        }
     }
 
     val useRail = LocalConfiguration.current.screenWidthDp >= RAIL_MIN_WIDTH_DP

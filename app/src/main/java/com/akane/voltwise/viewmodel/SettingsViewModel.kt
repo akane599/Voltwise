@@ -1,13 +1,17 @@
 package com.akane.voltwise.viewmodel
 
 import androidx.compose.runtime.Immutable
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akane.voltwise.battery.data.CalibrationStore
 import com.akane.voltwise.battery.measurement.CalibrationState
 import com.akane.voltwise.settings.AppSettings
 import com.akane.voltwise.settings.AppSettingsSchema
+import com.akane.voltwise.settings.Retention
 import com.akane.voltwise.settings.SettingsWrites
+import com.akane.voltwise.settings.resolveRetention
 import io.github.mlmgames.settings.core.SettingMeta
 import io.github.mlmgames.settings.core.SettingsRepository
 import kotlin.math.roundToInt
@@ -17,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -24,13 +30,28 @@ import kotlinx.coroutines.launch
 interface SettingsStore {
     val settings: Flow<AppSettings>
 
+    /**
+     * True while the raw history retention is invalid or absent after settings recovery; age cleanup
+     * stays paused (HistoryRetention) until a valid period is picked.
+     */
+    val retentionUnset: Flow<Boolean>
+
     /** Writes one [AppSettingsSchema] field by name; throws when storage fails. */
     suspend fun set(fieldName: String, value: Any)
 }
 
-/** [SettingsStore] over the app's kmp-settings repository. */
-class KmpSettingsStore(private val repository: SettingsRepository<AppSettings>) : SettingsStore {
+/**
+ * [SettingsStore] over the app's settings DataStore: kmp-settings for the typed values, the raw keys for
+ * [retentionUnset] (as HistoryRetention reads them). The store is the one source of truth; this
+ * [SettingsRepository] over it only differs from the app's in change listeners, which the app does not use.
+ */
+class KmpSettingsStore(private val dataStore: DataStore<Preferences>) : SettingsStore {
+    private val repository = SettingsRepository(dataStore, AppSettingsSchema)
+
     override val settings: Flow<AppSettings> get() = repository.flow
+
+    override val retentionUnset: Flow<Boolean> =
+        dataStore.data.map { resolveRetention(it) == Retention.Unset }.distinctUntilChanged()
 
     override suspend fun set(fieldName: String, value: Any) = repository.set(fieldName, value)
 }
@@ -118,15 +139,37 @@ enum class SettingsThreshold(val fieldName: String, val alert: SettingsSwitch, p
     }
 }
 
+/** What "Turn on" does while the app's notifications are off. */
+enum class NotificationsAction { REQUEST_PERMISSION, OPEN_SETTINGS }
+
+/**
+ * [NotificationsAction.REQUEST_PERMISSION] while Android would still show its dialog: API 33+, not granted, and never
+ * asked or denied only once (Android then reports a [rationale]). After a second denial Android stops showing it, so
+ * only the app's notification settings can turn notifications back on; that also covers notifications switched off
+ * there with the permission granted. A first dialog dismissed without an answer lands in settings too, which works.
+ */
+fun notificationsAction(sdkInt: Int, granted: Boolean, askedBefore: Boolean, rationale: Boolean): NotificationsAction =
+    if (sdkInt >= 33 && !granted && (!askedBefore || rationale)) {
+        NotificationsAction.REQUEST_PERMISSION
+    } else {
+        NotificationsAction.OPEN_SETTINGS
+    }
+
 /** A write the screen reports inline, until dismissed or the next successful write. */
 enum class SettingsError { WRITE_FAILED, INVALID_DESIGN_CAPACITY }
 
-/** Plain values; the screen formats them for the viewer's locale. */
+/**
+ * Plain values; the screen formats them for the viewer's locale. [notificationsEnabled] is Android's last reported
+ * answer (true until the screen first checks, so the "notifications are off" row never flashes in).
+ */
 @Immutable
 data class SettingsUiState(
     val settings: AppSettings = AppSettingsSchema.default,
     val calibration: CalibrationState = CalibrationState(),
     val error: SettingsError? = null,
+    val notificationsEnabled: Boolean = true,
+    /** [SettingsStore.retentionUnset]: the retention row shows "not set" instead of the decoded default. */
+    val retentionUnset: Boolean = false,
 )
 
 sealed interface SettingsEvent {
@@ -138,6 +181,12 @@ sealed interface SettingsEvent {
     data class SetDesignCapacity(val mAh: Int) : SettingsEvent
     data object ResetCalibration : SettingsEvent
     data object DismissError : SettingsEvent
+
+    /** What Android reports now for the app's notifications; the screen checks on every resume. */
+    data class NotificationsChecked(val enabled: Boolean) : SettingsEvent
+
+    /** Handled by the screen: ask for the permission again, or open Android's notification settings for the app. */
+    data object EnableNotifications : SettingsEvent
 
     /** Handled by the screen: Android's settings for the alert channel. */
     data object OpenAlertSound : SettingsEvent
@@ -159,9 +208,11 @@ class SettingsViewModel(
     private val calibration: CalibrationStore,
 ) : ViewModel() {
     private val error = MutableStateFlow<SettingsError?>(null)
+    private val notificationsEnabled = MutableStateFlow(true)
 
-    val state: StateFlow<SettingsUiState> = combine(store.settings, calibration.state, error, ::SettingsUiState)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), SettingsUiState())
+    val state: StateFlow<SettingsUiState> =
+        combine(store.settings, calibration.state, error, notificationsEnabled, store.retentionUnset, ::SettingsUiState)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), SettingsUiState())
 
     fun onEvent(event: SettingsEvent) {
         when (event) {
@@ -174,7 +225,9 @@ class SettingsViewModel(
             is SettingsEvent.SetDesignCapacity -> write(DESIGN_CAPACITY_FIELD) { event.mAh }
             SettingsEvent.ResetCalibration -> calibration.reset()
             SettingsEvent.DismissError -> error.value = null
-            SettingsEvent.OpenAlertSound, SettingsEvent.OpenData, SettingsEvent.OpenStatus -> Unit
+            is SettingsEvent.NotificationsChecked -> notificationsEnabled.value = event.enabled
+            SettingsEvent.EnableNotifications, SettingsEvent.OpenAlertSound, SettingsEvent.OpenData,
+            SettingsEvent.OpenStatus -> Unit
         }
     }
 

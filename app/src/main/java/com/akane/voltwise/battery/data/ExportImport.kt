@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.room.withTransaction
-import com.akane.voltwise.battery.apps.AppUsageBasis
 import com.akane.voltwise.battery.data.db.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -15,6 +14,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
 import java.io.File
 import java.io.FilterOutputStream
@@ -25,6 +26,7 @@ import java.time.Instant
 @Serializable
 data class BatteryExport(
     val samples: List<BatterySample> = emptyList(),
+    @Serializable(with = HistorySessionsSerializer::class)
     val sessions: List<ChargeSession> = emptyList(),
     val formatVersion: Int = 1,
     val exportedAtEpochMs: Long? = null,
@@ -32,12 +34,21 @@ data class BatteryExport(
     val toEpochMs: Long? = null,
     val units: Map<String, String> = emptyMap(),
     val reportingPeriod: String? = null,
-    val appUsage: List<SessionAppUsage> = emptyList(),  // format 3+: per-app rows of the exported sessions
 )
 
-/** 4: v6 screen counter coverage. Formats 1–3 still import; missing coverage stays null. */
-internal const val HISTORY_FORMAT_VERSION = 4
-private const val MAX_APP_USAGE_ROWS = HistoryLimits.MAX_SESSIONS * SessionAppUsage.MAX_ROWS
+/** 5: nullable Doze durations. Formats 1–4 still import with unknown Doze. */
+internal const val HISTORY_FORMAT_VERSION = 5
+
+/** Capture windows are local per-app evidence, never portable history. Also used by CSV. */
+internal object HistorySessionSerializer : JsonTransformingSerializer<ChargeSession>(ChargeSession.serializer()) {
+    private fun portable(element: JsonElement) = JsonObject(element.jsonObject.filterKeys {
+        it != "appCaptureStartMs" && it != "appCaptureEndMs"
+    })
+    override fun transformSerialize(element: JsonElement): JsonElement = portable(element)
+    override fun transformDeserialize(element: JsonElement): JsonElement = portable(element)
+}
+
+internal object HistorySessionsSerializer : KSerializer<List<ChargeSession>> by ListSerializer(HistorySessionSerializer)
 internal const val CURRENT_NOW_UA_EXPORT_DESCRIPTION =
     "Raw BatteryManager current as reported by the device; unit and sign are device-dependent, and detected calibration is not applied"
 
@@ -63,6 +74,7 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
     private val operations = Mutex()
     private val stringFields = setOf("sessionId", "observationId", "source", "boundaryReason", "etaBasis", "closeReason", "type",
         "chargerType", "capacityConfidence", "capacityBasis", "appUsageStatus", "appUsageBasis", "packageName", "basis")
+    private val excludedColumns = setOf("appCaptureStartMs", "appCaptureEndMs", "topWakelockTag", "topAlarmTag", "topJobName")
     private val booleanFields = setOf("screenOn", "isOthers")
     private val decimalFields = setOf("powerMah")
     private val metadataColumns = setOf("exportedAtEpochMs", "fromEpochMs", "toEpochMs", "timestampUtc", "startTimeUtc", "endTimeUtc", "reportingPeriod", "units")
@@ -74,12 +86,10 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
         return db.withTransaction {
             val points = if (samples) db.batteryDao().exportSamples(from, end) else emptyList()
             val periods = if (sessions) db.sessionDao().sessionsBetween(from, end) else emptyList()
-            val usage = if (sessions) db.appUsageDao().usageForSessionsBetween(from, end) else emptyList()
-            require(points.size <= HistoryLimits.MAX_SAMPLES && periods.size <= HistoryLimits.MAX_SESSIONS && usage.size <= MAX_APP_USAGE_ROWS) { "Use a smaller export date range" }
+            require(points.size <= HistoryLimits.MAX_SAMPLES && periods.size <= HistoryLimits.MAX_SESSIONS) { "Use a smaller export date range" }
             BatteryExport(points, periods, HISTORY_FORMAT_VERSION, System.currentTimeMillis(), from, end,
                 exportUnits(),
-                "Samples are within the requested range. Sessions overlap the range; their totals cover their complete original windows, not a clipped range. Per-app rows belong to the exported sessions. Missing fields are unavailable. Imports never resume monitoring.",
-                usage)
+                "Samples are within the requested range. Sessions overlap the range; their totals cover their complete original windows, not a clipped range. Per-app evidence and insights are excluded. Missing fields are unavailable. Imports never resume monitoring.")
         }
     }
     private class BoundedOutput(output: OutputStream) : FilterOutputStream(output) {
@@ -123,10 +133,8 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
                 }
                 if (includeSamples) write("battery_samples", payload.samples.asSequence().map { json.encodeToJsonElement(BatterySample.serializer(), it).jsonObject },
                     json.encodeToJsonElement(BatterySample.serializer(), emptySample()).jsonObject)
-                if (includeSessions) write("charge_sessions", payload.sessions.asSequence().map { json.encodeToJsonElement(ChargeSession.serializer(), it).jsonObject },
-                    json.encodeToJsonElement(ChargeSession.serializer(), ChargeSession("header", SessionType.UNKNOWN, 0, 0, null, null, null, null, null)).jsonObject)
-                if (includeSessions && payload.appUsage.isNotEmpty()) write("session_app_usage", payload.appUsage.asSequence().map { json.encodeToJsonElement(SessionAppUsage.serializer(), it).jsonObject },
-                    json.encodeToJsonElement(SessionAppUsage.serializer(), SessionAppUsage("header", 0, 0, "", 0.0, basis = AppUsageBasis.DELTA)).jsonObject)
+                if (includeSessions) write("charge_sessions", payload.sessions.asSequence().map { json.encodeToJsonElement(HistorySessionSerializer, it).jsonObject },
+                    json.encodeToJsonElement(HistorySessionSerializer, ChargeSession("header", SessionType.UNKNOWN, 0, 0, null, null, null, null, null)).jsonObject)
             } catch (e: Exception) { created.forEach { runCatching { it.delete() } }; throw e }
         }
     }
@@ -146,7 +154,8 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
         maintenance.mutations.withLock {
         check(!maintenance.isClearing) { "History is being cleared; try importing again afterward" }
         withContext(Dispatchers.IO) {
-            val samples = mutableListOf<BatterySample>(); val sessions = mutableListOf<ChargeSession>(); val usage = mutableListOf<SessionAppUsage>()
+            val samples = mutableListOf<BatterySample>(); val sessions = mutableListOf<ChargeSession>()
+            var ignoredUsageRows = 0
             (context.contentResolver.openInputStream(src) ?: throw IOException("Cannot open CSV file")).let(::LimitedHistoryInput).bufferedReader().use { input ->
                 val iterator = HistoryCsv.rows(input).iterator()
                 require(iterator.hasNext()) { "CSV file is empty" }
@@ -159,7 +168,13 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
                     currentCoroutineContext().ensureActive()
                     val row = iterator.next()
                     require(row.size == header.size) { "CSV row has the wrong number of columns" }
-                    val obj = JsonObject(header.zip(row).filter { it.first !in metadataColumns }.associate { (key, raw) ->
+                    // Legacy per-app CSVs remain readable, but cannot restore local app evidence.
+                    if (usageFile) {
+                        ignoredUsageRows++
+                        require(ignoredUsageRows <= HistoryLimits.MAX_SESSIONS * SessionAppUsage.MAX_ROWS) { "Too many history records" }
+                        continue
+                    }
+                    val obj = JsonObject(header.zip(row).filter { it.first !in metadataColumns && it.first !in excludedColumns }.associate { (key, raw) ->
                         key to when {
                             key == "packageName" -> JsonPrimitive(raw)  // never null; the "others" row may have none
                             raw.isBlank() || raw == "null" -> JsonNull
@@ -171,30 +186,26 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
                     })
                     when {
                         sampleFile -> samples += json.decodeFromJsonElement(BatterySample.serializer(), obj)
-                        usageFile -> usage += json.decodeFromJsonElement(SessionAppUsage.serializer(), obj)
-                        else -> sessions += json.decodeFromJsonElement(ChargeSession.serializer(), obj)
+                        else -> sessions += json.decodeFromJsonElement(HistorySessionSerializer, obj)
                     }
-                    require(samples.size <= HistoryLimits.MAX_SAMPLES && sessions.size <= HistoryLimits.MAX_SESSIONS && usage.size <= MAX_APP_USAGE_ROWS) { "Too many history records" }
+                    require(samples.size <= HistoryLimits.MAX_SAMPLES && sessions.size <= HistoryLimits.MAX_SESSIONS) { "Too many history records" }
                 }
             }
-            importPayload(BatteryExport(samples, sessions, appUsage = usage))
+            importPayload(BatteryExport(samples, sessions, formatVersion = HISTORY_FORMAT_VERSION))
         }
     } }
 
     /** Also used by instrumentation tests; caller holds the maintenance lock in the file entry points. */
     internal suspend fun importPayload(payload: BatteryExport): HistoryImportResult {
         require(payload.formatVersion in 1..HISTORY_FORMAT_VERSION) { "Unsupported history format version" }
-        require(payload.samples.size <= HistoryLimits.MAX_SAMPLES && payload.sessions.size <= HistoryLimits.MAX_SESSIONS &&
-            payload.appUsage.size <= MAX_APP_USAGE_ROWS) { "Too many history records" }
+        require(payload.samples.size <= HistoryLimits.MAX_SAMPLES && payload.sessions.size <= HistoryLimits.MAX_SESSIONS) { "Too many history records" }
         val samples = payload.samples.map(HistoryPolicy::sample)
-        val sessions = payload.sessions.map(HistoryPolicy::session)
-        val usage = HistoryPolicy.appUsage(payload.appUsage).groupBy { it.sessionId }
+        val sessions = payload.sessions.map { HistoryPolicy.session(it, payload.formatVersion) }
         require(sessions.map { it.sessionId }.toSet().size == sessions.size) { "Duplicate session identities in file" }
         var addedSamples = 0; var addedSessions = 0; var updated = 0; var skipped = 0
         return db.withTransaction {
             val samplesBefore = db.batteryDao().count()
             val sessionsBefore = db.sessionDao().count()
-            val dispositions = mutableMapOf<String, ImportSessionDisposition>()
             for ((index, session) in sessions.withIndex()) {
                 currentCoroutineContext().ensureActive()
                 val original = payload.sessions[index]
@@ -203,18 +214,17 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
                     require(HistoryPolicy.sameOrigin(local, original)) { "Conflicting local session identity" }
                     require((local.lastSampleTime ?: local.endTime ?: local.startTime) >= (original.lastSampleTime ?: original.endTime ?: original.startTime)) { "Import conflicts with a local observation" }
                     if ((local.lastSampleTime ?: local.endTime ?: local.startTime) == (original.lastSampleTime ?: original.endTime ?: original.startTime)) {
-                        require(HistoryPolicy.sameMeasurement(HistoryPolicy.session(local), session)) { "Conflicting values for a local session window" }
+                        require(HistoryPolicy.sameMeasurement(HistoryPolicy.session(local, payload.formatVersion), session)) { "Conflicting values for a local session window" }
                     }
                     skipped++; continue
                 }
                 val plan = HistoryPolicy.planSessionImport(db.sessionDao().byId(session.sessionId), original,
-                    hasAppUsage = session.sessionId in usage)
+                    formatVersion = payload.formatVersion)
                 when (plan.disposition) {
                     ImportSessionDisposition.ADDED -> db.sessionDao().insert(plan.session)
                     ImportSessionDisposition.UPDATED -> db.sessionDao().update(plan.session)
                     ImportSessionDisposition.UNCHANGED, ImportSessionDisposition.STALE -> Unit
                 }
-                dispositions[session.sessionId] = plan.disposition
                 addedSessions += plan.disposition.added
                 updated += plan.disposition.updated
                 skipped += plan.disposition.unchanged
@@ -248,21 +258,6 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
                 require(point == null) { "Conflicting readings for one observed point" }
                 require(db.batteryDao().insertSample(stored) != -1L) { "Sample insert conflicted with existing history" }
                 addedSamples++
-            }
-            // A breakdown follows its parent's merge: stale imports and local sessions keep their own.
-            for ((sessionId, rows) in usage) {
-                currentCoroutineContext().ensureActive()
-                val local = db.sessionDao().byId(HistoryPolicy.originalId(sessionId))
-                val session = db.sessionDao().byId(sessionId)
-                val plan = HistoryPolicy.planUsageImport(
-                    dispositions[sessionId], local?.source, session != null,
-                    db.appUsageDao().sessionUsageRows(sessionId), rows,
-                ) ?: continue
-                db.appUsageDao().replaceSessionUsageRows(sessionId, plan.rows)
-                val enriched = HistoryPolicy.withImportedUsage(checkNotNull(session), plan.rows)
-                if (enriched != session) db.sessionDao().update(enriched)
-                updated += plan.updated
-                skipped += plan.unchanged
             }
             // Refuse rather than silently deleting existing history to make room for an import.
             require(HistoryLimits.importWithinLimit(samplesBefore, db.batteryDao().count(), HistoryLimits.MAX_SAMPLES) &&

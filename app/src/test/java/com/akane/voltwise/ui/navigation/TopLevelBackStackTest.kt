@@ -187,6 +187,31 @@ class TopLevelBackStackTest {
     }
 
     @Test
+    fun `openDestination for insights opens Insights at its root even when FindingDetails is retained`() {
+        backStacks.getValue(Routes.Insights).add(Routes.FindingDetails("APP_DRAIN_ANOMALY:com.example"))
+
+        subject.openDestination(Destinations.INSIGHTS)
+
+        assertEquals(Routes.Insights, subject.selectedTab)
+        assertEquals(listOf(Routes.Insights), backStacks.getValue(Routes.Insights).toList())
+    }
+
+    @Test
+    fun `Insights is the second of five tabs`() {
+        assertEquals(listOf(Routes.Now, Routes.Insights, Routes.History, Routes.Apps, Routes.Settings), TOP_LEVEL_TABS)
+    }
+
+    @Test
+    fun `back at the Insights root returns to Now`() {
+        selected = Routes.Insights
+
+        assertTrue(subject.onBack())
+
+        assertEquals(Routes.Now, subject.selectedTab)
+        assertEquals(listOf(Routes.Insights), backStacks.getValue(Routes.Insights).toList())
+    }
+
+    @Test
     fun `openDestination for now opens Now at its root even when Health is retained`() {
         selected = Routes.History
         backStacks.getValue(Routes.Now).add(Routes.Health)
@@ -319,6 +344,39 @@ class TopLevelBackStackTest {
 
         assertEquals(listOf(Routes.Settings), settings.toList())
         assertEquals(0, refusals)
+    }
+
+    // Back at Now's root finishes the activity, clearing every entry's ViewModel: a busy entry on another tab must hold
+    // it the same way, by showing that tab and telling its blocker.
+
+    @Test
+    fun `back at Now root is held while another tab has a busy blocker`() {
+        val settings = backStacks.getValue(Routes.Settings)
+        settings.add(Routes.SettingsData)
+        var refusals = 0
+        subject.blockLeaving(Routes.SettingsData, isBusy = { true }) { refusals++ }
+        subject.select(Routes.Now)
+
+        assertTrue(subject.isLeavingBlocked())
+        val handled = subject.onBack()
+
+        assertTrue(handled)
+        assertEquals(1, refusals)
+        assertEquals(Routes.Settings, subject.selectedTab)
+        assertEquals(listOf(Routes.Settings, Routes.SettingsData), settings.toList())
+    }
+
+    @Test
+    fun `back at Now root still finishes when no blocker is busy`() {
+        backStacks.getValue(Routes.Settings).add(Routes.SettingsData)
+        var refusals = 0
+        subject.blockLeaving(Routes.SettingsData, isBusy = { false }) { refusals++ }
+        subject.select(Routes.Now)
+
+        assertFalse(subject.isLeavingBlocked())
+        assertFalse(subject.onBack())
+        assertEquals(0, refusals)
+        assertEquals(Routes.Now, subject.selectedTab)
     }
 
     @Test

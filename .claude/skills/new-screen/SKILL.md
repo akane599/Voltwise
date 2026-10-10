@@ -8,7 +8,7 @@ argument-hint: "<ScreenName> — <one-line purpose>"
 
 Arguments: `$ARGUMENTS` (e.g. `Alarms — configured battery alarms`). Derive `Xxx` (PascalCase, no "Screen" suffix). Code shapes are in [template.md](template.md) — copy them, don't improvise a different structure.
 
-## Rules (from CLAUDE.md, enforced by review)
+## Rules (from `.claude/live-rules/rules/android-code.md`, enforced by review)
 - Wrapper `XxxScreen` holds everything stateful: `koinViewModel`/`koinInject`, `collectAsStateWithLifecycle`, effects, launchers, Intents, clipboard, system services, root/Shizuku. `XxxContent` is stateless: plain state + lambdas, `modifier: Modifier = Modifier` first optional param, applied to the root `Scaffold`.
 - No literal user-facing strings, no `!!`, trailing commas, `val` by default. Don't add `Color(0x…)`; use `MaterialTheme`.
 - Keep other screens' public signatures stable; if a caller needs an `onOpenXxx` callback, update its wrapper, its `XxxContent`, and its screenshot test together.
@@ -22,5 +22,5 @@ Arguments: `$ARGUMENTS` (e.g. `Alarms — configured battery alarms`). Derive `X
 6. **Build + screenshot references.**
    - `./gradlew :app:assembleDebug :app:testDebugUnitTest --console=plain -q`
    - `python3 scripts/check_resources.py`
-   - Validate screenshots with `:app:testDebugScreenshotTestDefaultTestSuite` (or `bash .claude/scripts/run_screenshot_tests.sh`). Only in a UI ticket, update references through `bash .claude/skills/screenshot-rebaseline/rebaseline.sh` after following its triage workflow, or run `:app:updateDebugScreenshotTestDefaultTestSuite` directly when appropriate. Never update references as routine scaffold verification.
+   - Validate screenshots with `:app:testDebugScreenshotTestDefaultTestSuite` (or `bash .claude/scripts/run_screenshot_tests.sh`). Only in a UI ticket, update references through `bash .claude/skills/screenshot-rebaseline/rebaseline.sh` after following its triage workflow. Never update references as routine scaffold verification.
 7. **Verify:** dispatch the `compose-reviewer` agent on the new files and a fresh agent to run build + unit + `:app:testDebugScreenshotTestDefaultTestSuite` and open the screen on the emulator. Update `PROGRESS.md`.

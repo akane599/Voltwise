@@ -111,6 +111,67 @@ class AppUsageDeltaTest {
         assertEquals(30L, others.cpuTimeMs) // 20 + 10
     }
 
+    @Test fun highCountWakeupReasonSurvivesLongKernelWakelockDeltas() {
+        val kernels = (1..12).map { DeviceWaker("KERNEL_WAKELOCK", "kernel.$it", 5, 60_000L * it) }
+        val reason = DeviceWaker("WAKEUP_REASON", "storm", 300, 1_000)
+        val baseline = snapshot(100L, 1L).copy(wakersComplete = true)
+        val end = snapshot(100L, 1L).copy(deviceWakers = kernels + reason)
+
+        val result = AppUsageDelta.compute(baseline, end)
+
+        assertEquals(AppUsageBasis.DELTA, result.basis)
+        assertTrue("High-count wakeup reason must survive the session cap", reason in result.deviceWakers)
+        assertEquals(10, result.deviceWakers.size)
+        assertEquals(kernels.takeLast(9).reversed(), result.deviceWakers.filter { it.kind == "KERNEL_WAKELOCK" })
+    }
+
+    @Test fun deviceWakerQuotasRankSessionDeltasByKindAndBreakTiesByName() {
+        val kernels = (1..12).map { DeviceWaker("KERNEL_WAKELOCK", "kernel.$it", 100L - it, 60_000L * it) }
+        val reasons = (1..6).map { DeviceWaker("WAKEUP_REASON", "reason.$it", 100L * it, 60_000L * (7 - it)) } +
+            DeviceWaker("WAKEUP_REASON", "reason.a", 600, 0)
+        val deltas = kernels + reasons
+        // Absolute totals rank oppositely: selection must happen after subtracting each baseline.
+        val baseWakers = deltas.mapIndexed { index, waker ->
+            waker.copy(count = 10_000L * (deltas.size - index), totalMs = 1_000_000L * (deltas.size - index))
+        }
+        val endWakers = deltas.zip(baseWakers) { delta, base ->
+            delta.copy(count = base.count + delta.count, totalMs = base.totalMs + delta.totalMs)
+        }
+        val baseline = snapshot(100L, 1L).copy(deviceWakers = baseWakers)
+        val end = snapshot(100L, 1L).copy(deviceWakers = endWakers)
+
+        val result = AppUsageDelta.compute(baseline, end).deviceWakers
+
+        assertEquals(kernels.takeLast(6).reversed() + listOf(reasons[5], reasons[6], reasons[4], reasons[3]), result)
+        assertEquals(result, AppUsageDelta.compute(
+            baseline.copy(deviceWakers = baseWakers.reversed()),
+            end.copy(deviceWakers = endWakers.reversed()),
+        ).deviceWakers)
+    }
+
+    @Test fun spareKernelSlotsAreFilledByCountRankedWakeupReasons() {
+        val kernels = listOf(DeviceWaker("KERNEL_WAKELOCK", "kernel", 1, 60_000))
+        val reasons = (1..12).map { DeviceWaker("WAKEUP_REASON", "reason.$it", it.toLong(), 0) }
+        val baseline = snapshot(100L, 1L).copy(wakersComplete = true)
+        val end = snapshot(100L, 1L).copy(deviceWakers = kernels + reasons)
+
+        assertEquals(kernels + reasons.takeLast(9).reversed(), AppUsageDelta.compute(baseline, end).deviceWakers)
+        assertEquals(reasons.takeLast(10).reversed(), AppUsageDelta.compute(
+            baseline, end.copy(deviceWakers = reasons),
+        ).deviceWakers)
+    }
+
+    @Test fun kernelTimeTiesUseNameRatherThanCountOrInputOrder() {
+        val kernels = listOf(
+            DeviceWaker("KERNEL_WAKELOCK", "z", 300, 60_000),
+            DeviceWaker("KERNEL_WAKELOCK", "a", 1, 60_000),
+        )
+        val baseline = snapshot(100L, 1L).copy(wakersComplete = true)
+        val end = snapshot(100L, 1L).copy(deviceWakers = kernels)
+
+        assertEquals(kernels.reversed(), AppUsageDelta.compute(baseline, end).deviceWakers)
+    }
+
     @Test fun othersRowIsOmittedWhenNothingOverflowsTopN() {
         val end = snapshot(100L, 1L, row(1, power = 1.0), row(2, power = 2.0))
         val result = AppUsageDelta.compute(null, end, topN = 5)

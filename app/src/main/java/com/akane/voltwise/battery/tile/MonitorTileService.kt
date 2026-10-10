@@ -57,6 +57,14 @@ class MonitorTileService : TileService(), KoinComponent {
 
     override fun onClick() {
         super.onClick()
+        if (tileClickNeedsUnlock(Build.VERSION.SDK_INT, isLocked)) {
+            unlockAndRun { toggle() }
+        } else {
+            toggle()
+        }
+    }
+
+    private fun toggle() {
         if (monitoring.isMonitoring.value) {
             monitoring.stop()
         } else if (monitoring.start() == MonitoringControl.StartResult.BLOCKED) {

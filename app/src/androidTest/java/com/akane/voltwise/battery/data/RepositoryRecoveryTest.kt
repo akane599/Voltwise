@@ -97,7 +97,7 @@ class RepositoryRecoveryTest {
         // As BatteryApp does: retention cleanup waits for this migration.
         private val migrator = SettingsMigrator(dataStore).also { scope.launch { it.run() } }
         val repository = BatteryRepository(database, settings, scope, HistoryMaintenance(), diagnostics, sampler,
-            calibration, HistoryRetention(migrator, settings.flow), MemoryStore())
+            calibration, HistoryRetention(migrator, dataStore, com.akane.voltwise.battery.data.sampling.SamplerState(MemoryStore())) { 1 }, MemoryStore())
         suspend fun refresh() = withTimeout(60_000) {
             val result = CompletableDeferred<BatteryRepository.Realtime>()
             repository.refreshNow { result.complete(it) }

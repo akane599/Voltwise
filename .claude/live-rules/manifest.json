@@ -3,7 +3,7 @@
   "rules": [
     {
       "path": "rules/android-build.md",
-      "hash": "78c9c93fe47923f3b06fa26a92a0c574773c0227704311fb21ea8ead0f2f2777",
+      "hash": "7a510367922373d51381ed7fdcf16d9e17e7ea4386b9f61eb5df8fccdf4fd633",
       "description": "Android build, test and dependency rules",
       "globs": [],
       "dirs": [],
@@ -14,7 +14,7 @@
     },
     {
       "path": "rules/android-code.md",
-      "hash": "2e619c89ac637eb7e4be3aaf979785c403bef8664de3bca68ad7b4884b34b537",
+      "hash": "ea5ef58372a5073195233603b4ba6244bbc9de6dd5cd8a7aa697379fe1f1d411",
       "description": "Kotlin and Jetpack Compose conventions",
       "globs": [],
       "dirs": [],
@@ -25,7 +25,7 @@
     },
     {
       "path": "rules/android-orchestration.md",
-      "hash": "b83d1833900f19dd4b0f37d31564fce1ad81ffdbe80c0389e3015ec4778c551e",
+      "hash": "5cbcc6423e311dcf82481bc8d5fc13e7bb5ae703bcf5e3eb62d8efd994cb12aa",
       "description": "How Android work is ticketed, routed and dispatched (Sidequest, routing profile android-kit)",
       "globs": [],
       "dirs": [],
@@ -53,6 +53,27 @@
       "dirs": [],
       "prompt": [],
       "priority": 40,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/statistical-detectors.md",
+      "hash": "018628c07649798771f726e2b766a29f9d379f7f8637224aa5d2668bf5c704e3",
+      "description": "Statistical detector changes carry false-positive and power evidence",
+      "globs": [
+        "app/src/main/java/com/akane/voltwise/battery/insights/engine/**"
+      ],
+      "dirs": [],
+      "prompt": [
+        "detector",
+        "false positive",
+        "false-positive",
+        "trend",
+        "baseline",
+        "Theil",
+        "Mann-Kendall"
+      ],
+      "priority": 5,
       "enabled": true,
       "include": []
     }

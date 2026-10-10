@@ -32,7 +32,9 @@ class DailySummaryReplay(private val zone: ZoneId, private val updatedAt: Long) 
         val after = engine.accept(point)
         previous = point
         val interval = DailySummaryAggregator.interval(before, after, sample.temperatureDeciC) ?: return
-        DailySummaryAggregator.apply(rows, interval, zone, updatedAt).forEach { rows[it.epochDay] = it }
+        // Samples cannot recover Doze; keep the new daily observation fields unknown during replay.
+        val replayed = interval.copy(dozeMs = null, screenOffDozeMs = null, screenOffSuspendMs = null)
+        DailySummaryAggregator.apply(rows, replayed, zone, updatedAt).forEach { rows[it.epochDay] = it }
     }
 
     /** Every touched day, ascending. */

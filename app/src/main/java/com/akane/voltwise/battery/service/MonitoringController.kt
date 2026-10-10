@@ -10,6 +10,21 @@ import com.akane.voltwise.battery.data.sampling.SharedPreferencesStore
 import com.akane.voltwise.battery.drain.DrainNotificationManager
 import kotlinx.coroutines.flow.StateFlow
 
+internal const val START_FROM_PROMPT_ACTION = "com.akane.voltwise.action.START_FROM_PROMPT"
+
+internal fun monitoringStateStore(context: Context): KeyValueStore =
+    SharedPreferencesStore(context.getSharedPreferences("monitoring_state", Context.MODE_PRIVATE))
+
+/** Called only after foreground promotion succeeds and history is not being cleared. */
+internal fun recordPromptStart(action: String?, store: KeyValueStore) {
+    if (action == START_FROM_PROMPT_ACTION) store.edit(mapOf("monitoring_wanted" to "true"))
+}
+
+internal fun stopMonitoring(store: KeyValueStore, stopService: () -> Unit) {
+    store.edit(mapOf("monitoring_wanted" to "false"))
+    stopService()
+}
+
 /** Starts and stops [BatteryMonitorService]; the service itself starts and stops the sampler. */
 class MonitoringController internal constructor(
     override val isMonitoring: StateFlow<Boolean>,
@@ -19,7 +34,7 @@ class MonitoringController internal constructor(
 ) : MonitoringControl {
     constructor(context: Context, repository: BatteryRepository) : this(
         isMonitoring = repository.isMonitoringFlow,
-        store = SharedPreferencesStore(context.getSharedPreferences("monitoring_state", Context.MODE_PRIVATE)),
+        store = monitoringStateStore(context),
         startService = {
             DrainNotificationManager.ensureChannel(context)
             try {
@@ -47,8 +62,5 @@ class MonitoringController internal constructor(
         return result
     }
 
-    override fun stop() {
-        store.edit(mapOf("monitoring_wanted" to "false"))
-        stopService()
-    }
+    override fun stop() = stopMonitoring(store, stopService)
 }

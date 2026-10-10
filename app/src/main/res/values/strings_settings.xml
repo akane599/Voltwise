@@ -30,6 +30,10 @@
     <string name="settings_alert_full">Fully charged</string>
     <string name="settings_alert_sound">Alert sound &amp; vibration</string>
     <string name="settings_alert_sound_summary">In Android’s notification settings</string>
+    <!-- Top of Alerts, only while Android blocks the app's notifications; the button asks again or opens Android's settings -->
+    <string name="settings_notifications_off_title">Notifications are off</string>
+    <string name="settings_notifications_off_body">Alerts, insights and the monitoring notification can’t be shown.</string>
+    <string name="settings_notifications_turn_on">Turn on</string>
     <!-- TalkBack for a threshold button: %1$s = alert name, %2$s = value with unit -->
     <string name="settings_threshold_description">%1$s threshold, %2$s</string>
     <string name="settings_threshold_low_hint">Alert when the level drops to this.</string>

@@ -13,6 +13,9 @@ import com.akane.voltwise.battery.data.HistoryImportResult
 import com.akane.voltwise.battery.data.LimitedHistoryInput
 import com.akane.voltwise.battery.data.db.BatteryDatabase
 import com.akane.voltwise.battery.service.BatteryMonitorService
+import com.akane.voltwise.battery.service.monitoringStateStore
+import com.akane.voltwise.battery.service.stopMonitoring
+import com.akane.voltwise.battery.data.sampling.KeyValueStore
 import com.akane.voltwise.settings.AppSettings
 import com.akane.voltwise.settings.SettingsImportPolicy
 import io.github.mlmgames.settings.core.backup.ExportResult
@@ -402,7 +405,17 @@ class DefaultDataRepository(
         }
     }
 
-    override suspend fun clearAll() {
-        battery.clearHistory { context.stopService(Intent(context, BatteryMonitorService::class.java)) }
+    override suspend fun clearAll() = clearAll(battery::clearHistory, monitoringStateStore(context)) {
+        context.stopService(Intent(context, BatteryMonitorService::class.java))
+    }
+
+    internal companion object {
+        suspend fun clearAll(
+            clearHistory: suspend (() -> Unit) -> Unit,
+            store: KeyValueStore,
+            stopService: () -> Unit,
+        ) {
+            clearHistory { stopMonitoring(store, stopService) }
+        }
     }
 }

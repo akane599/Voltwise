@@ -15,7 +15,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DEFAULT_ARGS_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.lifecycle.viewmodel.MutableCreationExtras
 import com.akane.voltwise.settings.AppSettings
 import com.akane.voltwise.ui.navigation.Destinations
 import com.akane.voltwise.ui.navigation.mainActivityLaunchFlags
@@ -30,6 +33,10 @@ internal fun mainActivityIntent(context: Context, destination: String? = null): 
         .apply {
             if (destination != null) putExtra(Destinations.EXTRA_DESTINATION, destination)
         }
+
+/** Where the app records that it has asked for POST_NOTIFICATIONS (here on first launch, or from Settings). */
+internal const val NOTIFICATION_PERMISSION_PREFS = "notification_permission"
+internal const val NOTIFICATION_PERMISSION_ASKED = "asked_once"
 
 internal fun shouldRequestNotificationPermission(
     sdkInt: Int,
@@ -47,6 +54,12 @@ internal fun shouldRequestNotificationPermission(
 internal val themeSettingsBeforeFirstEmission: AppSettings? = null
 
 class BatteryMainActivity : ComponentActivity() {
+    // Launch intents select destinations, never ViewModel state. Keep owners so genuine saved state still restores.
+    override val defaultViewModelCreationExtras: CreationExtras
+        get() = MutableCreationExtras(super.defaultViewModelCreationExtras).apply {
+            set(DEFAULT_ARGS_KEY, Bundle())
+        }
+
     private val destination = MutableStateFlow<String?>(null)
     private val notifPerm = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -69,17 +82,17 @@ class BatteryMainActivity : ComponentActivity() {
             val granted = ContextCompat.checkSelfPermission(
                 this, Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
-            val permissionPreferences = getSharedPreferences("notification_permission", MODE_PRIVATE)
+            val permissionPreferences = getSharedPreferences(NOTIFICATION_PERMISSION_PREFS, MODE_PRIVATE)
             if (shouldRequestNotificationPermission(
                     sdkInt = Build.VERSION.SDK_INT,
                     granted = granted,
                     restored = savedInstanceState != null,
-                    askedBefore = permissionPreferences.getBoolean("asked_once", false),
+                    askedBefore = permissionPreferences.getBoolean(NOTIFICATION_PERMISSION_ASKED, false),
                     rationale = shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS),
                 )
             ) {
                 // Record before launch so recreation while the dialog is open cannot request again.
-                permissionPreferences.edit().putBoolean("asked_once", true).apply()
+                permissionPreferences.edit().putBoolean(NOTIFICATION_PERMISSION_ASKED, true).apply()
                 notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }

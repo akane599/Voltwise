@@ -26,12 +26,29 @@ class BatteryAlertsTest {
     @Test fun episodeStateSurvivesServiceRestartAndMissingData() {
         val first = BatteryAlerts()
         first.accept(reading(level = 10), defaults)
-        val restored = BatteryAlerts(first.latches)
+        val restored = BatteryAlerts(first.latches, first.lastAcceptedElapsedMs)
         assertTrue(restored.accept(reading(30_000, 10), defaults).isEmpty())
         assertTrue(restored.accept(reading(60_000, null, status = 1, plugged = null), defaults).isEmpty())
         assertTrue(restored.accept(reading(90_000, 10), defaults).isEmpty())
         restored.accept(reading(120_000, 25), defaults)
         assertEquals(setOf(BatteryAlert.LOW), restored.accept(reading(150_000, 10), defaults))
+    }
+    @Test fun restoredLowLatchExpiresAfterAnUnmonitoredGap() {
+        val restored = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000)
+        assertEquals("A new discharge episode must alert after the 100 s gap limit",
+            setOf(BatteryAlert.LOW), restored.accept(reading(700_001, 15), defaults))
+    }
+    @Test fun restoredLowLatchExpiresWhenElapsedRealtimeMovesBackwards() {
+        val restored = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000)
+        assertEquals("A reading from a new boot must not retain the old LOW episode",
+            setOf(BatteryAlert.LOW), restored.accept(reading(30_000, 15), defaults))
+    }
+    @Test fun restoredLowLatchSuppressesAQuickRestartIncludingTheGapBoundary() {
+        for (time in listOf(630_000L, 700_000L)) {
+            val restored = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000)
+            assertTrue("A restart within the gap must retain storm protection",
+                restored.accept(reading(time, 15), defaults).isEmpty())
+        }
     }
     @Test fun fullUsesReportedStatusAndCoalescesTheHighThreshold() {
         val alerts = BatteryAlerts()
@@ -86,9 +103,58 @@ class BatteryAlertsTest {
     }
     @Test fun failedDeliveryCanRestoreThePreviousLatchStateForRetry() {
         val alerts = BatteryAlerts()
-        val before = alerts.latches
         assertEquals(setOf(BatteryAlert.LOW), alerts.accept(reading(level = 10), defaults))
-        alerts.restoreLatches(before)
+        alerts.retryDelivery()
         assertEquals(setOf(BatteryAlert.LOW), alerts.accept(reading(30_000, 10), defaults))
+    }
+    @Test fun expiredLatchesCannotReturnWhenDeliveryFails() {
+        val alerts = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000)
+        assertEquals(setOf(BatteryAlert.LOW), alerts.accept(reading(700_001, 15), defaults))
+        alerts.retryDelivery()
+        assertTrue(alerts.latches.isEmpty())
+        assertEquals(setOf(BatteryAlert.LOW), alerts.accept(reading(730_001, 15), defaults))
+    }
+    @Test fun bootIdentityExpiresLatchesEvenWhenUptimeHasCaughtUp() {
+        for (time in listOf(600_000L, 630_000L)) {
+            val alerts = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000, initialBootCount = 3)
+            assertEquals(setOf(BatteryAlert.LOW), alerts.accept(reading(time, 15).copy(bootCount = 4), defaults))
+        }
+        val sameBoot = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000, initialBootCount = 4)
+        assertTrue(sameBoot.accept(reading(630_000, 15).copy(bootCount = 4), defaults).isEmpty())
+    }
+    @Test fun legacyLatchesWithoutATimestampExpireOnTheFirstReading() {
+        val alerts = BatteryAlerts(setOf(BatteryAlert.LOW))
+        assertEquals(setOf(BatteryAlert.LOW), alerts.accept(reading(30_000, 15), defaults))
+    }
+    @Test fun fullAndTemperatureLatchesExpireAfterAnUnmonitoredGap() {
+        val alerts = BatteryAlerts(setOf(BatteryAlert.FULL, BatteryAlert.TEMPERATURE), initialElapsedMs = 600_000)
+        assertEquals(setOf(BatteryAlert.FULL, BatteryAlert.TEMPERATURE),
+            alerts.accept(reading(700_001, 100, status = 5, plugged = 1, temperature = 460), defaults))
+    }
+    @Test fun recentRestartUsesTheLastAcceptedReadingNotTheAlertTime() {
+        val first = BatteryAlerts()
+        first.accept(reading(600_000, 15), defaults)
+        for (time in 630_000L..900_000L step 30_000) first.accept(reading(time, 15), defaults)
+        assertEquals(900_000L, first.lastAcceptedElapsedMs)
+        val restored = BatteryAlerts(first.latches, first.lastAcceptedElapsedMs)
+        assertTrue(restored.accept(reading(930_000, 15), defaults).isEmpty())
+    }
+    @Test fun refreshedLatchSurvivesRestartAfterRefreshIntervalAndOneFastCapture() {
+        val savedElapsedMs = 600_000L
+        val restored = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = savedElapsedMs)
+        assertTrue("A throttled timestamp must still suppress the LOW alert after a quick restart",
+            restored.accept(reading(savedElapsedMs + ALERT_REFRESH_MS + 2_000, 15)
+                .copy(samplingIntervalMs = 2_000), defaults).isEmpty())
+        assertEquals(setOf(BatteryAlert.LOW), restored.latches)
+    }
+    @Test fun restoredEpisodesUseTheSameClampedSamplingGapRule() {
+        for (interval in listOf(1_000L, 5_000L, 300_000L, 600_000L)) {
+            val gapLimit = interval.coerceIn(5_000, 300_000) * 3 + 10_000
+            val atBoundary = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000)
+            assertTrue(atBoundary.accept(reading(600_000 + gapLimit, 15).copy(samplingIntervalMs = interval), defaults).isEmpty())
+            val afterBoundary = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = 600_000)
+            assertEquals(setOf(BatteryAlert.LOW), afterBoundary.accept(
+                reading(600_001 + gapLimit, 15).copy(samplingIntervalMs = interval), defaults))
+        }
     }
 }

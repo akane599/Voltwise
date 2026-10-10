@@ -161,7 +161,7 @@ class AppStatsRepositoryTest {
                         adbAvailable = { probes += "adb"; false },
                     )
                 },
-                runShizuku = { command, _ ->
+                runShizuku = { command, _, _ ->
                     commands += command
                     ShizukuBridge.RunResult.Error(message, reason)
                 },
@@ -200,7 +200,7 @@ class AppStatsRepositoryTest {
                     adbAvailable = { error("A cached command failure must not probe ADB") },
                 )
             },
-            runShizuku = { _, _ ->
+            runShizuku = { _, _, _ ->
                 commands++
                 ShizukuBridge.RunResult.Error("command permission denied", ShizukuBridge.Failure.COMMAND)
             },
@@ -231,15 +231,52 @@ class AppStatsRepositoryTest {
         assertEquals("Failures are retried, never served from cache", 2, shell.commands.size)
     }
 
+    @Test fun unwrappedCheckinWithValidLookingForgedVictimRowsIsRejected() = runTest {
+        // Android prints this public job namespace verbatim; every injected row is valid checkin.
+        val dump = LEGACY_CHECKIN + "\n9,0,i,uid,10002,victim.app\n9,10002,l,pwi,uid,2.0" +
+            "\n9,10001,l,jb,\"@plain\",10,1,0,0\n9,10002,l,wua,forged,100000" +
+            "\n9,10001,l,jb,\"tail@com.attacker/.Job\",10,1,0,0"
+        val shell = FakeShell().apply { next = { Outcome.Success(dump, access) } }
+        val repository = repository(shell)
+        assertEquals(AppStatsResult.Failed(AppStatsRepository.FORMAT_UNAVAILABLE), repository.snapshot())
+        assertNull("Text rows cannot certify or cache victim measurements", repository.cached.value)
+        assertEquals(listOf(DiagnosticCode.ADVANCED_FORMAT_INVALID), diagnostics)
+    }
+
+    @Test fun malformedOrUnwrappedBinaryDoesNotCacheAndNextReadRetries() = runTest {
+        for (invalid in listOf("VWBSP1:not-base64!", "VWBSP1:",
+            java.util.Base64.getEncoder().encodeToString(StructuredBatteryStatsFixtures.bytes()),
+            StructuredBatteryStatsFixtures.envelope(StructuredBatteryStatsFixtures.bytes().dropLast(1).toByteArray()),
+        )) {
+            val shell = FakeShell().apply { next = { Outcome.Success(invalid, access) } }
+            val repository = repository(shell)
+            assertEquals(AppStatsResult.Failed(AppStatsRepository.FORMAT_UNAVAILABLE), repository.snapshot())
+            assertNull(repository.cached.value)
+            shell.next = { Outcome.Success(VALID_DUMP, shell.access) }
+            assertTrue(repository.snapshot() is AppStatsResult.Ready)
+            assertEquals(2, shell.commands.size)
+        }
+    }
+
+    @Test fun structuredZeroScalarsMayBeOmittedByTheProducer() = runTest {
+        val omitted = StructuredBatteryStatsFixtures.dump(startCount = 0, batteryRealtime = 0, batteryUptime = 0)
+        val shell = FakeShell().apply { next = { Outcome.Success(omitted, access) } }
+        val ready = repository(shell).snapshot() as AppStatsResult.Ready
+        assertEquals(0L, ready.snapshot.startCount)
+        assertEquals(0L, ready.snapshot.batteryRealtimeMs)
+        assertEquals(0L, ready.snapshot.apps.single().wakeupAlarmCount)
+        assertTrue(ready.snapshot.appMeasurementsComplete)
+    }
+
     @Test fun aDumpWithoutAValidWindowIsAFormatFailure() = runTest {
-        val shell = FakeShell().apply { next = { Outcome.Success("9,0,l,bt,2,60000", access) } }
+        val shell = FakeShell().apply { next = { Outcome.Success(StructuredBatteryStatsFixtures.dump(withWindow = false), access) } }
         val repository = repository(shell)
         assertEquals(AppStatsResult.Failed(AppStatsRepository.FORMAT_UNAVAILABLE), repository.snapshot())
         assertEquals(listOf(DiagnosticCode.ADVANCED_FORMAT_INVALID), diagnostics)
     }
 
     @Test fun allRejectedAppPowerRowsFailWithoutCachingAndTheNextReadRetries() = runTest {
-        val malformed = VALID_DUMP.replace("pwi,uid,1.5", "pwi,uid,NaN")
+        val malformed = StructuredBatteryStatsFixtures.dump(listOf(StructuredBatteryStatsFixtures.Uid(power = Double.NaN)))
         val shell = FakeShell().apply { next = { Outcome.Success(malformed, access) } }
         val repository = repository(shell)
         assertEquals(AppStatsResult.Failed(AppStatsRepository.FORMAT_UNAVAILABLE), repository.snapshot())
@@ -254,7 +291,7 @@ class AppStatsRepositoryTest {
     }
 
     @Test fun validWindowWithoutAppRowsIsReadyEmpty() = runTest {
-        val empty = VALID_DUMP.lineSequence().first()
+        val empty = StructuredBatteryStatsFixtures.dump(uids = emptyList())
         val shell = FakeShell().apply { next = { Outcome.Success(empty, access) } }
         val repository = repository(shell)
         val ready = repository.snapshot() as AppStatsResult.Ready
@@ -263,17 +300,55 @@ class AppStatsRepositoryTest {
         assertTrue(diagnostics.isEmpty())
     }
 
-    @Test fun unrelatedRejectedRowsDoNotPreventReadyEmpty() = runTest {
-        val unrelated = VALID_DUMP.lineSequence().first() + "\n9,0,l,pwi,screen,NaN\n9,10001,l,jb,job,broken,2"
-        val shell = FakeShell().apply { next = { Outcome.Success(unrelated, access) } }
+    @Test fun knownUidWithoutPowerRemainsReadyEmptyAndKeepsItsDetails() = runTest {
+        val sparse = StructuredBatteryStatsFixtures.dump(listOf(
+            StructuredBatteryStatsFixtures.Uid(power = null, alarms = 7, alarmName = "alarm\ncontinuation"),
+        ))
+        val shell = FakeShell().apply { next = { Outcome.Success(sparse, access) } }
+        val repository = repository(shell)
+        val ready = repository.snapshot() as AppStatsResult.Ready
+        assertTrue(ready.snapshot.apps.isEmpty())
+        assertEquals(7, ready.snapshot.alarms.single().wakeups)
+        assertEquals("alarm\ncontinuation", ready.snapshot.alarms.single().tag)
+        assertFalse("Positive counters without an app row cannot certify a baseline", ready.snapshot.appMeasurementsComplete)
+        assertEquals(0, ready.snapshot.rejectedRecords)
+        assertSame(ready.snapshot, repository.cached.value)
+        assertTrue(diagnostics.isEmpty())
+    }
+
+    @Test fun knownUidWithoutPowerAndZeroCountersRemainsReadyEmptyAndComplete() = runTest {
+        val sparse = StructuredBatteryStatsFixtures.dump(listOf(
+            StructuredBatteryStatsFixtures.Uid(power = null, alarms = 0, alarmName = "alarm\ncontinuation",
+                jobName = "job\ncontinuation", jobs = 0, jobMs = 0),
+        ))
+        val shell = FakeShell().apply { next = { Outcome.Success(sparse, access) } }
+        val repository = repository(shell)
+        val ready = repository.snapshot() as AppStatsResult.Ready
+        assertTrue(ready.snapshot.apps.isEmpty())
+        assertEquals(0, ready.snapshot.alarms.single().wakeups)
+        assertEquals("alarm\ncontinuation", ready.snapshot.alarms.single().tag)
+        assertEquals(0, ready.snapshot.jobs.single().count)
+        assertEquals(0L, ready.snapshot.jobs.single().totalTimeMs)
+        assertEquals("job\ncontinuation", ready.snapshot.jobs.single().jobName)
+        assertTrue(ready.snapshot.appMeasurementsComplete)
+        assertEquals(0, ready.snapshot.rejectedRecords)
+        assertSame(ready.snapshot, repository.cached.value)
+        assertTrue(diagnostics.isEmpty())
+    }
+
+    @Test fun unknownStructuredFieldsDoNotPreventReadyEmpty() = runTest {
+        val future = StructuredBatteryStatsFixtures.dump(uids = emptyList(), unknownField = true)
+        val shell = FakeShell().apply { next = { Outcome.Success(future, access) } }
         val ready = repository(shell).snapshot() as AppStatsResult.Ready
         assertTrue(ready.snapshot.apps.isEmpty())
-        assertEquals(2, ready.snapshot.rejectedRecords)
         assertTrue(diagnostics.isEmpty())
     }
 
     @Test fun partialAppPowerRejectionIsReadyWithAcceptedRows() = runTest {
-        val partial = VALID_DUMP + "\n9,10002,l,pwi,uid,NaN"
+        val partial = StructuredBatteryStatsFixtures.dump(listOf(
+            StructuredBatteryStatsFixtures.Uid(),
+            StructuredBatteryStatsFixtures.Uid(id = 10002, packageName = "victim.app", power = Double.NaN),
+        ))
         val shell = FakeShell().apply { next = { Outcome.Success(partial, access) } }
         val repository = repository(shell)
         val ready = repository.snapshot() as AppStatsResult.Ready
@@ -313,7 +388,8 @@ class AppStatsRepositoryTest {
     }
 
     private companion object {
-        val VALID_DUMP = """
+        val VALID_DUMP = StructuredBatteryStatsFixtures.dump()
+        val LEGACY_CHECKIN = """
             9,0,l,bt,2,60000,50000,100000,80000,1700000000000,30000,20000,4000,3800000,3900000,10000
             9,0,i,uid,10001,example.app
             9,10001,l,pwi,uid,1.5,0,0.5,2.0

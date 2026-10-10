@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Insights (ui/screens/insights/). Keys prefixed insights_. -->
+<resources>
+    <!-- Tab, header and analysis -->
+    <string name="insights_tab">Análisis</string>
+    <string name="insights_title">Análisis</string>
+    <string name="insights_analyze">Analizar ahora</string>
+    <string name="insights_analyzing">Analizando…</string>
+    <string name="insights_analyzing_description">Analizando los datos de la batería</string>
+    <string name="insights_last_analyzed">Último análisis: %1$s</string>
+    <string name="insights_never_analyzed">Aún sin analizar</string>
+    <string name="insights_loading">Cargando análisis…</string>
+
+    <!-- Screen states -->
+    <string name="insights_access_title">Las correcciones necesitan Shizuku o root</string>
+    <string name="insights_access_body">Voltwise sigue detectando problemas y abre los ajustes de Android para que los corrijas a mano. Los hallazgos sobre apps concretas y las correcciones con un toque necesitan acceso: instala Shizuku, inícialo y permite Voltwise cuando lo pida (o concede root).</string>
+    <string name="insights_access_set_up">Configurar acceso</string>
+    <string name="insights_learning_title">Aún aprendiendo tu uso</string>
+    <string name="insights_learning_body">%1$d de %2$d sesiones con datos de apps para comparar. Los hallazgos sobre apps empiezan cuando Voltwise tenga %2$d.</string>
+    <string name="insights_learning_body_no_access">%1$d de %2$d sesiones con datos de apps para comparar. Voltwise puede registrar datos de apps con acceso ADB compatible, Shizuku o root. Aplicar restricciones a las apps requiere Shizuku o root.</string>
+    <string name="insights_all_good_title">Nada requiere atención</string>
+    <string name="insights_all_good_body">Ninguna app ni ajuste gasta más de lo habitual. Voltwise vuelve a comprobarlo tras cada sesión.</string>
+    <string name="insights_never_title">Aún no hay análisis</string>
+    <string name="insights_never_body">Analiza las sesiones registradas para encontrar apps y ajustes que gastan más de lo habitual.</string>
+    <string name="insights_error_title">No se pudieron analizar los datos de la batería</string>
+    <string name="insights_error_body">Tus sesiones registradas no han cambiado. Vuelve a intentarlo en un momento.</string>
+    <string name="insights_try_again">Reintentar</string>
+
+    <!-- Sections and rows -->
+    <string name="insights_key_findings">Hallazgos clave</string>
+    <string name="insights_what_changed">Qué ha cambiado</string>
+    <string name="insights_applied_fixes">Correcciones aplicadas</string>
+    <string name="insights_details">Detalles</string>
+    <string name="insights_open_details">abrir detalles</string>
+    <string name="insights_subject_device">Este teléfono</string>
+    <string name="insights_fix_applied">Corrección aplicada</string>
+    <string name="insights_needs_access">Necesita Shizuku o root</string>
+    <string name="insights_applied_at">Aplicada: %1$s</string>
+    <string name="insights_undo">Deshacer</string>
+    <string name="insights_undo_description">Deshacer %1$s en %2$s</string>
+    <string name="insights_apply_description">%1$s en %2$s</string>
+
+    <!-- Evidence -->
+    <string name="insights_ratio">%1$s×</string>
+    <string name="insights_evidence_ratio">%1$s: %2$s lo habitual</string>
+    <string name="insights_evidence_usually">%1$s: %2$s (normalmente %3$s)</string>
+    <string name="insights_evidence_plain">%1$s: %2$s</string>
+    <string name="insights_headline_vs_usual">%1$s frente a lo habitual</string>
+    <string name="insights_headline_usually">%1$s · normalmente %2$s</string>
+    <plurals name="insights_confidence_sessions">
+        <item quantity="one">%1$s · %2$d sesión</item>
+        <item quantity="many">%1$s · %2$d sesiones</item>
+        <item quantity="other">%1$s · %2$d sesiones</item>
+    </plurals>
+    <string name="insights_change_values">%1$s → %2$s</string>
+    <string name="insights_trend_up">Ha subido</string>
+    <string name="insights_trend_down">Ha bajado</string>
+    <string name="insights_effect_fell">%1$s: ha bajado un %2$s desde el cambio</string>
+    <string name="insights_effect_rose">%1$s: ha subido un %2$s desde el cambio</string>
+    <string name="insights_effect_same">%1$s: casi igual desde el cambio</string>
+
+    <!-- Units -->
+    <string name="insights_unit_per_h">%1$s/h</string>
+    <string name="insights_unit_min_per_h">min/h</string>
+    <string name="insights_unit_per_year">%1$s al año</string>
+
+    <!-- Severity and confidence -->
+    <string name="insights_severity_info">Info</string>
+    <string name="insights_severity_low">Baja</string>
+    <string name="insights_severity_medium">Media</string>
+    <string name="insights_severity_high">Alta</string>
+    <string name="insights_severity_description">Gravedad: %1$s</string>
+    <string name="insights_confidence_low">Confianza baja</string>
+    <string name="insights_confidence_medium">Confianza media</string>
+    <string name="insights_confidence_high">Confianza alta</string>
+
+    <!-- FindingType -->
+    <string name="insights_type_app_drain_anomaly">Gasta más de lo habitual</string>
+    <string name="insights_type_new_heavy_app">Nueva app que gasta mucho</string>
+    <string name="insights_type_background_runaway">Muy activa en segundo plano</string>
+    <string name="insights_type_stuck_wakelock">Mantiene el teléfono despierto</string>
+    <string name="insights_type_wakeup_storm">Despierta el teléfono a menudo</string>
+    <string name="insights_type_job_storm">Ejecuta muchas tareas o sincronizaciones</string>
+    <string name="insights_type_doze_blocked">Doze no se activa</string>
+    <string name="insights_type_doze_whitelisted_drainer">Exenta de Doze y gastando</string>
+    <string name="insights_type_screen_off_drain_high">Mucho gasto con la pantalla apagada</string>
+    <string name="insights_type_trend">Ha cambiado con el tiempo</string>
+    <string name="insights_type_charging_at_full">Sigue enchufado con la carga completa</string>
+    <string name="insights_type_hot_charging">Se calienta al cargar</string>
+    <string name="insights_type_health_decline">La capacidad está bajando</string>
+    <string name="insights_type_background_location">Usa ubicación o sensores en segundo plano</string>
+    <string name="insights_type_background_radio">Usa la red en segundo plano</string>
+    <string name="insights_type_lingering_foreground_service">Un servicio en primer plano sigue activo</string>
+    <string name="insights_type_action_effect">Efecto de una corrección</string>
+
+    <!-- Metric -->
+    <string name="insights_metric_power">Consumo</string>
+    <string name="insights_metric_wakeup_alarms">Alarmas que despiertan</string>
+    <string name="insights_metric_partial_wakelocks">Wakelocks</string>
+    <string name="insights_metric_partial_wakelock_bg_share">Wakelocks en segundo plano</string>
+    <string name="insights_metric_bg_time_share">Tiempo en segundo plano</string>
+    <string name="insights_metric_fgs_to_foreground_ratio">Servicio en primer plano frente a uso</string>
+    <string name="insights_metric_cpu">Tiempo de CPU</string>
+    <string name="insights_metric_foreground">Tiempo en primer plano</string>
+    <string name="insights_metric_fgs">Tiempo de servicio en primer plano</string>
+    <string name="insights_metric_top">Tiempo en pantalla</string>
+    <string name="insights_metric_wakelock">Tiempo de wakelock</string>
+    <string name="insights_metric_jobs">Tareas en segundo plano</string>
+    <string name="insights_metric_job_time">Tiempo de tareas</string>
+    <string name="insights_metric_syncs">Sincronizaciones</string>
+    <string name="insights_metric_gps">Tiempo de GPS</string>
+    <string name="insights_metric_sensor">Tiempo de sensores</string>
+    <string name="insights_metric_radio_active">Tiempo de radio móvil</string>
+    <string name="insights_metric_mobile_bytes">Datos móviles</string>
+    <string name="insights_metric_wifi_bytes">Datos Wi-Fi</string>
+    <string name="insights_metric_window_drain_share">Parte del consumo total</string>
+    <string name="insights_metric_screen_off_drain">Consumo con pantalla apagada</string>
+    <string name="insights_metric_deep_doze">Tiempo en Doze profundo</string>
+    <string name="insights_metric_screen_off_deep_sleep">Suspensión profunda con pantalla apagada</string>
+    <string name="insights_metric_screen_on_drain">Consumo con pantalla encendida</string>
+    <string name="insights_metric_daily_use">Uso diario</string>
+    <string name="insights_metric_temperature">Temperatura máxima</string>
+    <string name="insights_metric_capacity">Capacidad</string>
+    <string name="insights_metric_capacity_change">Cambio de capacidad</string>
+    <string name="insights_metric_plugged_at_full">Tiempo enchufado con la carga completa</string>
+
+    <!-- ActionType: button labels -->
+    <string name="insights_action_restrict_background">Restringir segundo plano</string>
+    <string name="insights_action_standby_restricted">Limitar a Restringida</string>
+    <string name="insights_action_standby_rare">Limitar a Poco frecuente</string>
+    <string name="insights_action_force_stop">Forzar detención</string>
+    <string name="insights_action_remove_doze_whitelist">Quitar exención de Doze</string>
+    <string name="insights_action_open_app_settings">Abrir ajustes de la app</string>
+    <string name="insights_action_open_battery_optimization">Abrir optimización de batería</string>
+    <string name="insights_action_enable_high_battery_alert">Activar aviso de batería alta</string>
+
+    <!-- ActionType: exact effect -->
+    <string name="insights_effect_restrict_background">Aplica la restricción de actividad en segundo plano de Android a esta app. Las exenciones de Android pueden seguir permitiendo actividad en segundo plano.</string>
+    <string name="insights_effect_standby_restricted">Pasa esta app al grupo de espera Restringida de Android: sus tareas y alarmas se ejecutan como mucho una vez al día.</string>
+    <string name="insights_effect_standby_rare">Pasa esta app al grupo de espera Poco frecuente de Android: sus tareas y alarmas se retrasan horas.</string>
+    <string name="insights_effect_force_stop">Detiene esta app y su trabajo en segundo plano ahora mismo. Se inicia con normalidad la próxima vez que la abras.</string>
+    <string name="insights_effect_remove_doze_whitelist">Quita esta app de las exenciones de optimización de batería de Android, así Doze la limita como a las demás.</string>
+    <string name="insights_effect_open_app_settings">Abre la página de esta app en los ajustes de Android. No cambia nada hasta que lo cambies allí.</string>
+    <string name="insights_effect_open_battery_optimization">Abre la lista de optimización de batería de Android. No cambia nada hasta que lo cambies allí.</string>
+    <string name="insights_effect_enable_high_battery_alert">Activa el aviso de batería alta de Voltwise para que sepas cuándo desenchufar.</string>
+
+    <!-- ActionType: side effects -->
+    <string name="insights_side_restrict_background">Las notificaciones, la sincronización y los widgets que dependen del segundo plano pueden llegar tarde o detenerse hasta que abras la app.</string>
+    <string name="insights_side_standby_restricted">Los mensajes y novedades de esta app pueden llegar con horas de retraso.</string>
+    <string name="insights_side_standby_rare">Los mensajes y novedades de esta app pueden llegar tarde.</string>
+    <string name="insights_side_force_stop">Se pierde el trabajo sin guardar de la app, y sus alarmas y notificaciones se detienen hasta que vuelva a ejecutarse.</string>
+    <string name="insights_side_remove_doze_whitelist">Con el teléfono inactivo, esta app puede sincronizar y avisar más tarde.</string>
+    <string name="insights_side_open_app_settings">Ninguno por parte de Voltwise.</string>
+    <string name="insights_side_open_battery_optimization">Ninguno por parte de Voltwise.</string>
+    <string name="insights_side_enable_high_battery_alert">Recibes una notificación cuando la batería llega al nivel del aviso.</string>
+
+    <!-- Apply confirmation -->
+    <string name="insights_apply_title">¿%1$s?</string>
+    <string name="insights_apply_side_effects">Efectos secundarios</string>
+    <string name="insights_apply_reversible">Puedes deshacerlo más tarde en Correcciones aplicadas.</string>
+    <string name="insights_apply_irreversible">No se puede deshacer.</string>
+    <string name="insights_apply_alert_reversible">Puedes desactivar el aviso de nuevo en Ajustes.</string>
+    <string name="insights_apply_privileged">Voltwise hace este cambio mediante Shizuku o root.</string>
+    <string name="insights_cancel">Cancelar</string>
+
+    <!-- Action status -->
+    <string name="insights_status_prepared">Aplicando</string>
+    <string name="insights_status_applied">Aplicada</string>
+    <string name="insights_status_failed">No se aplicó</string>
+    <string name="insights_status_unknown">Resultado desconocido</string>
+    <string name="insights_status_reverted">Deshecha</string>
+    <string name="insights_status_changed_externally">Cambiada fuera de Voltwise</string>
+    <string name="insights_status_one_shot">Hecho</string>
+
+    <!-- InsightMessageCode -->
+    <string name="insights_message_applied">Corrección aplicada.</string>
+    <string name="insights_message_restricted_to_rare">Android no permite aquí el grupo Restringida, así que la app se limitó a Poco frecuente.</string>
+    <string name="insights_message_unknown">No se pudo confirmar si el cambio se aplicó.</string>
+    <string name="insights_message_reverted">Cambio deshecho.</string>
+    <string name="insights_message_changed_externally">Este ajuste se cambió fuera de Voltwise, así que no se deshizo nada.</string>
+    <string name="insights_message_one_shot">Hecho.</string>
+    <string name="insights_message_one_shot_notifications_off">La alerta de batería alta está activada, pero las notificaciones están desactivadas.</string>
+    <string name="insights_message_read_failed">No se pudo leer el ajuste actual de la app. No se cambió nada.</string>
+    <string name="insights_message_execution_failed">Android no aceptó el cambio.</string>
+    <string name="insights_message_not_applied">El ajuste no cambió y sigue con su valor original.</string>
+    <string name="insights_message_state_mismatch">El ajuste no volvió a su valor anterior. Vuelve a pulsar Deshacer.</string>
+    <string name="insights_message_not_undoable">Esta corrección no se puede deshacer.</string>
+    <string name="insights_message_invalid_journal">El registro de esta corrección está incompleto, así que no se puede deshacer.</string>
+    <string name="insights_message_not_privileged">Necesita acceso con Shizuku o root.</string>
+    <string name="insights_message_protected">Voltwise no cambia apps del sistema ni esenciales.</string>
+    <string name="insights_message_not_installed">La app ya no está instalada.</string>
+    <string name="insights_message_uid_mismatch">La app se reinstaló después de este hallazgo. Vuelve a analizar primero.</string>
+    <string name="insights_message_shared_uid">Esta app comparte su identidad con otras apps, así que Voltwise no la cambiará.</string>
+    <string name="insights_message_role_holder">Esta app tiene una función del sistema (pantalla de inicio, teléfono, mensajes o teclado), así que Voltwise no la cambiará.</string>
+    <string name="insights_message_unsupported_sdk">Esta corrección no está disponible en tu versión de Android.</string>
+    <string name="insights_message_invalid_subject">Esta corrección no se aplica a este hallazgo.</string>
+    <string name="insights_message_invalid_package">El nombre de paquete de esta app no es válido, así que no se cambió nada.</string>
+    <string name="insights_message_unrestorable_prior">Voltwise no podría deshacerlo después, así que no se cambió nada.</string>
+    <string name="insights_message_inspection_failed">No se pudo comprobar la app de forma segura. No se cambió nada.</string>
+    <string name="insights_message_already_at_target">Ese ajuste ya está aplicado.</string>
+    <string name="insights_message_finding_unavailable">Este hallazgo ya no aparece tras el último análisis.</string>
+    <string name="insights_message_recommendation_unavailable">Esta corrección ya no se ofrece para el hallazgo.</string>
+    <string name="insights_message_analysis_failed">No se pudieron analizar los datos de la batería.</string>
+    <string name="insights_message_feedback_failed">No se pudo guardar tu opinión.</string>
+
+    <string name="insights_settings_unavailable">La página de ajustes no está disponible en este dispositivo.</string>
+</resources>

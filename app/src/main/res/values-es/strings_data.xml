@@ -33,7 +33,7 @@
     <string name="data_import_json">Importar JSON</string>
     <string name="data_import_csv">Importar CSV</string>
     <string name="data_import_info_title">Acerca de las importaciones</string>
-    <string name="data_import_info_body">Las importaciones se añaden a tu historial y nunca inician la monitorización. Los registros idénticos se omiten. Un archivo que entra en conflicto con lo guardado, o que tiene un registro no válido, se rechaza entero, así que nada se importa a medias.\n\nUn archivo CSV contiene lecturas, sesiones o uso de apps; impórtalos de uno en uno. Se aceptan archivos de hasta 64 MiB.</string>
+    <string name="data_import_info_body">Las importaciones se añaden a tu historial y nunca inician la monitorización. Los registros idénticos se omiten. Un archivo que entra en conflicto con lo guardado, o que tiene un registro no válido, se rechaza entero, así que nada se importa a medias.\n\nUn archivo CSV contiene lecturas o sesiones; impórtalos de uno en uno. El uso por app de exportaciones antiguas no se importa, y Voltwise lo reconstruye a partir de las sesiones nuevas. Se aceptan archivos de hasta 64 MiB.</string>
     <string name="data_imported">Lecturas añadidas: %1$s · sesiones añadidas: %2$s · ampliadas: %3$s · sin cambios: %4$s</string>
 
     <!-- Copia de ajustes -->

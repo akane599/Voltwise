@@ -24,7 +24,6 @@ object SettingsMigrations {
 
     private const val DYNAMIC_COLORS_KEY = "dynamic_colors"
     private const val AUTO_CLEANUP_KEY = "auto_cleanup_enabled"
-    private const val RETENTION_KEY = "data_retention_index"
 
     /**
      * Keys removed in v3: both intervals, theme, show-in-mA, chart range, auto-cleanup (folded into
@@ -63,7 +62,11 @@ object SettingsMigrations {
         override val toVersion = 3
         override suspend fun migrate(prefs: MutablePreferences) {
             if (prefs[booleanPreferencesKey(AUTO_CLEANUP_KEY)] == false) {
-                prefs[intPreferencesKey(RETENTION_KEY)] = RETENTION_FOREVER_INDEX
+                prefs[RETENTION_INDEX] = RETENTION_FOREVER_INDEX
+            }
+            // Explicitly authorize the default for fresh/legacy stores, never for corruption recovery.
+            if (resolveRetention(prefs) is Retention.Days && prefs[RETENTION_INDEX] == null) {
+                prefs[RETENTION_INDEX] = AppSettings().dataRetentionIndex
             }
             // Keys compare by name, whatever type a key was stored with.
             prefs.asMap().keys.filter { it.name in V3_REMOVED_KEYS }.forEach { prefs.remove(it) }
@@ -78,7 +81,7 @@ object SettingsMigrations {
         val result = settings.toMutableMap()
         if (fromVersion == 1) result[DYNAMIC_COLORS_KEY] = "b:false"
         if (fromVersion < 3) {
-            if (result[AUTO_CLEANUP_KEY] == "b:false") result[RETENTION_KEY] = "i:$RETENTION_FOREVER_INDEX"
+            if (result[AUTO_CLEANUP_KEY] == "b:false") result[RETENTION_INDEX.name] = "i:$RETENTION_FOREVER_INDEX"
             result.keys.removeAll(V3_REMOVED_KEYS)
         }
         return result

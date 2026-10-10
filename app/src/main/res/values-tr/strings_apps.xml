@@ -75,6 +75,7 @@
     <string name="apps_details_share">Tüm uygulamalardaki payı</string>
     <string name="apps_details_not_counted">Android, istatistikleri baştan başladığından beri bu uygulamanın kullanımını saymadı.</string>
 
+    <string name="apps_details_findings_title">Bulgular</string>
     <string name="apps_details_time_title">Duruma göre süre</string>
     <string name="apps_details_time_foreground">Ön plan</string>
     <string name="apps_details_time_fgs">Ön plan hizmeti</string>
@@ -132,14 +133,14 @@
 
     <string name="apps_details_history_title">Pildeki oturumlar</string>
     <plurals name="apps_details_history_caption">
-        <item quantity="one">%2$d oturumun %1$d tanesinde ilk 30 içinde</item>
-        <item quantity="other">%2$d oturumun %1$d tanesinde ilk 30 içinde</item>
+        <item quantity="one">%2$d oturumun %1$d tanesinde ayrı olarak kaydedildi</item>
+        <item quantity="other">%2$d oturumun %1$d tanesinde ayrı olarak kaydedildi</item>
     </plurals>
     <string name="apps_details_history_empty">Son 30 günde uygulama başına veri içeren oturum yok.</string>
     <string name="apps_details_history_failed">Kaydedilen oturumlar okunamadı.</string>
     <string name="apps_details_history_series">Kullanılan pil</string>
     <string name="apps_details_history_info_title">Pildeki oturumlar hakkında</string>
-    <string name="apps_details_history_info_body">Her çubuk, son 30 gündeki bir pil dönemidir (en fazla 14), fişten çekilmeden takılana kadar. Voltwise, erişimi olduğunda Android istatistiklerini iki uçta da okur ve her birinin ilk 30 uygulamasını saklar.\n\nBu uygulamanın ilk 30 içinde olmadığı bir oturum 0 olarak görünür.</string>
+    <string name="apps_details_history_info_body">Her çubuk, son 30 gündeki bir pil dönemidir (en fazla 14), fişten çekilmeden takılana kadar. Voltwise, erişimi olduğunda Android istatistiklerini iki uçta da okur; en çok pil kullanan 30 uygulamayı ve telefonu uyandıran en fazla 10 ek uygulamayı saklar.\n\nBu uygulamanın ayrı olarak kaydedilmediği bir oturum 0 olarak görünür.</string>
     <string name="apps_details_nothing_else">Bu uygulama için kaydedilen başka bir şey yok.</string>
     <string name="apps_summary_capacity_source">Android tahmini</string>
 </resources>

@@ -1,6 +1,7 @@
 package com.akane.voltwise.viewmodel
 
 import android.graphics.Bitmap
+import com.akane.voltwise.battery.insights.model.*
 import androidx.lifecycle.SavedStateHandle
 import com.akane.voltwise.battery.apps.AppInfo
 import com.akane.voltwise.battery.apps.AppInfoSource
@@ -68,6 +69,172 @@ class NowViewModelTest {
         runCurrent()
         return vm to { vm.state.value }
     }
+
+    @Test fun lowChargeDrainAndHealthPreferLocalCapacityAndFallBackToImportedOnly() = runTest {
+        monitoring.isMonitoring.value = true
+        repo.realtime.value = BatteryRepository.Realtime(sample(T0).copy(levelPercent = 40, chargeCounterUah = 1_200_000))
+        repo.discharge.value = listOf(drainSession("open", endTime = null))
+        val local = session("local", capacityMah = 5_000, confidence = "MEDIUM")
+        val imported = List(3) { i -> session("import:old-$i", capacityMah = 3_000, confidence = "HIGH") }
+        repo.sessions.value = listOf(local) + imported
+        repo.design.value = DesignCapacityReading.Known(5_000_000, fromSettings = true)
+        val (_, state) = start()
+
+        assertEquals(5_000, state().health?.capacityMah)
+        assertEquals(100.0, state().health!!.healthPercent!!, 1e-9)
+        assertEquals(8.0, state().sinceUnplug!!.screenOn.percentPerHour!!, 1e-9)
+
+        repo.sessions.value = imported
+        runCurrent()
+        assertEquals(3_000, state().health?.capacityMah)
+        assertEquals(60.0, state().health!!.healthPercent!!, 1e-9)
+        assertEquals(400_000 * 100.0 / 3_000_000, state().sinceUnplug!!.screenOn.percentPerHour!!, 1e-9)
+    }
+
+    @Test fun insightsDistinguishNotAnalyzedFromAllGoodAndIgnoreInformationalFindings() = runTest {
+        repo.insights.value = InsightReport(0, emptyList(), null)
+        val (_, state) = start()
+        assertNull(state().insightsSummary)
+        // Report timestamps are not proof of analysis; only lastAnalyzedAt is authoritative.
+        repo.insights.value = InsightReport(T0, emptyList(), null)
+        runCurrent()
+        assertNull(state().insightsSummary)
+        repo.insights.value = InsightReport(0, emptyList(), null)
+        runCurrent()
+        repo.lastAnalyzedAt.value = T0
+        runCurrent()
+        assertEquals(InsightsSummary(null, 0), state().insightsSummary)
+        assertTrue(state().insightsSummary!!.allGood)
+        repo.insights.value = InsightReport(T0, listOf(actionEffect), null)
+        runCurrent()
+        assertTrue(state().insightsSummary!!.allGood)
+        assertEquals(0, state().insightsSummary!!.activeFindingCount)
+    }
+
+    @Test fun insightsMapHeadlineIdentityAndCountOnlyActiveNonInformationalFindings() = runTest {
+        repo.lastAnalyzedAt.value = T0
+        val headline = finding(Severity.HIGH)
+        repo.insights.value = InsightReport(T0, listOf(headline, finding(Severity.LOW), actionEffect), headline)
+        val (_, state) = start()
+        assertEquals(InsightsSummary(InsightHeadline(headline.key, headline.type, Severity.HIGH, CHROME), 2), state().insightsSummary)
+        assertFalse(state().insightsSummary!!.allGood)
+        val device = headline.copy(subject = Subject.Device)
+        repo.insights.value = InsightReport(T0, listOf(device), device)
+        runCurrent()
+        assertNull(state().insightsSummary!!.headline!!.packageName)
+    }
+
+    // R8-5: Insights says "still learning" below 5 comparable sessions; Now must not say "all good" meanwhile.
+    @Test fun aQuietReportWithTooFewComparableSessionsIsLearningNotAllGood() = runTest {
+        repo.insights.value = InsightReport(T0, emptyList(), null)
+        repo.lastAnalyzedAt.value = 1
+        repo.eligible.value = 1
+        val (_, state) = start()
+        assertFalse("1 of 5 comparable sessions is not 'all good'", state().insightsSummary!!.allGood)
+        assertEquals(InsightsSummary(null, 0, learning = true), state().insightsSummary)
+        // An action effect (informational, shown with its fix) is neither a finding nor a change here either.
+        repo.insights.value = InsightReport(T0, listOf(actionEffect), null)
+        runCurrent()
+        assertTrue(state().insightsSummary!!.learning)
+        assertFalse(state().insightsSummary!!.allGood)
+    }
+
+    @Test fun enoughComparableSessionsAndAQuietReportIsAllGood() = runTest {
+        repo.insights.value = InsightReport(T0, emptyList(), null)
+        repo.lastAnalyzedAt.value = 1
+        repo.eligible.value = 1
+        val (_, state) = start()
+        repo.eligible.value = 5
+        runCurrent()
+        assertFalse(state().insightsSummary!!.learning)
+        assertTrue(state().insightsSummary!!.allGood)
+    }
+
+    // R9-5: an app finding needs 4 history windows plus the current one, so 4 eligible windows is still learning.
+    @Test fun fourComparableSessionsAreStillLearningUntilAFifthGivesAppsABaseline() = runTest {
+        repo.insights.value = InsightReport(T0, emptyList(), null)
+        repo.lastAnalyzedAt.value = 1
+        repo.eligible.value = 4
+        val (_, state) = start()
+        assertTrue("4 windows leave only 3 history windows: no app finding is possible yet", state().insightsSummary!!.learning)
+        assertFalse(state().insightsSummary!!.allGood)
+        repo.eligible.value = 5
+        runCurrent()
+        assertFalse(state().insightsSummary!!.learning)
+        assertTrue(state().insightsSummary!!.allGood)
+    }
+
+    // R9-6: Insights lists a directional trend under Changes; Now must not say "nothing is draining more than usual".
+    @Test fun anInformationalDirectionalTrendIsAChangeToReviewNotAllGood() = runTest {
+        val trend = finding(Severity.INFO).copy(key = "TREND:screen_off", type = FindingType.TREND, subject = Subject.Device)
+        repo.insights.value = InsightReport(T0, listOf(trend), null)
+        repo.lastAnalyzedAt.value = 1
+        val (_, state) = start()
+        assertFalse("Insights shows this trend under Changes", state().insightsSummary!!.allGood)
+        assertEquals(InsightsSummary(null, 0, changeCount = 1), state().insightsSummary)
+        // Insights' FINDINGS body (the Changes panel) wins over "still learning"; Now follows.
+        repo.eligible.value = 1
+        runCurrent()
+        assertFalse(state().insightsSummary!!.learning)
+        assertFalse(state().insightsSummary!!.allGood)
+        repo.eligible.value = 5
+        // Negative control: an informational trend without a direction is not listed by Insights, so Now stays all good.
+        repo.insights.value = InsightReport(T0, listOf(trend.copy(direction = null)), null)
+        runCurrent()
+        assertTrue(state().insightsSummary!!.allGood)
+    }
+
+    // R10-4: the capacity decline is informational and directional, so Insights lists it under Changes; Now counts it.
+    @Test fun anActiveHealthDeclineIsAChangeToReviewButAnActionEffectIsNot() = runTest {
+        repo.insights.value = InsightReport(T0, listOf(healthDecline), null)
+        repo.lastAnalyzedAt.value = 1
+        repo.eligible.value = 5
+        val (_, state) = start()
+        assertFalse("a falling capacity is not 'nothing is draining more than usual'", state().insightsSummary!!.allGood)
+        assertEquals(InsightsSummary(null, 0, changeCount = 1), state().insightsSummary)
+        // It needs no app windows: without Shizuku or root the change still wins over "still learning".
+        repo.eligible.value = 0
+        runCurrent()
+        assertEquals(InsightsSummary(null, 0, changeCount = 1), state().insightsSummary)
+        // Negative control: an applied fix's measured effect is shown with the fix, never counted as a change.
+        repo.eligible.value = 5
+        repo.insights.value = InsightReport(T0, listOf(actionEffect), null)
+        runCurrent()
+        assertEquals(InsightsSummary(null, 0), state().insightsSummary)
+        assertTrue(state().insightsSummary!!.allGood)
+    }
+
+    @Test fun anActiveFindingWinsOverLearning() = runTest {
+        val headline = finding(Severity.HIGH)
+        repo.insights.value = InsightReport(T0, listOf(headline), headline)
+        repo.lastAnalyzedAt.value = 1
+        repo.eligible.value = 1
+        val (_, state) = start()
+        assertEquals(InsightsSummary(InsightHeadline(headline.key, headline.type, Severity.HIGH, CHROME), 1), state().insightsSummary)
+        assertFalse(state().insightsSummary!!.learning)
+        assertFalse(state().insightsSummary!!.allGood)
+    }
+
+    private fun finding(severity: Severity) = Finding(
+        key = "APP_DRAIN_ANOMALY:$CHROME:$severity", type = FindingType.APP_DRAIN_ANOMALY,
+        severity = severity, confidence = Confidence.HIGH, score = 1.0,
+        subject = Subject.App(10_001, CHROME), direction = Direction.UP,
+        evidence = emptyList(), series = emptyList(), recommendations = emptyList(),
+    )
+
+    /** What ChargingHealth emits for a falling capacity: device-wide, INFO and DOWN, no baseline. */
+    private val healthDecline = Finding(
+        key = "HEALTH_DECLINE:device", type = FindingType.HEALTH_DECLINE,
+        severity = Severity.INFO, confidence = Confidence.MEDIUM, score = 50.0,
+        subject = Subject.Device, direction = Direction.DOWN,
+        evidence = listOf(Evidence(Metric.CAPACITY_CHANGE_PCT_PER_YEAR, -6.0, null, MetricUnit.PCT_PER_YEAR, 6)),
+        series = emptyList(), recommendations = emptyList(),
+    )
+
+    /** An applied fix's measured effect: INFO and directional, but listed with the fix under Applied fixes. */
+    private val actionEffect = finding(Severity.INFO).copy(
+        key = "ACTION_EFFECT:$CHROME:POWER_MAH_PER_H:7", type = FindingType.ACTION_EFFECT, direction = Direction.DOWN,
+    )
 
     @Test fun heroAndReadoutsUseTheCalibratedReadingAndHoldTheEtaAcrossACaptureWithoutIt() = runTest {
         monitoring.isMonitoring.value = true
@@ -146,6 +313,22 @@ class NowViewModelTest {
         // Navigation events are the screen's: the ViewModel ignores them.
         vm.onEvent(NowEvent.OpenApps)
         assertEquals(2, monitoring.starts)
+    }
+
+    @Test fun externalMonitoringStartClearsStaleStartBlockedNotice() = runTest {
+        repo.realtime.value = BatteryRepository.Realtime(sample(T0))
+        val (vm, state) = start()
+        monitoring.result = MonitoringControl.StartResult.BLOCKED
+
+        vm.onEvent(NowEvent.ToggleMonitoring)
+        runCurrent()
+        assertTrue(state().hero.startBlocked)
+
+        monitoring.isMonitoring.value = true
+        runCurrent()
+        monitoring.isMonitoring.value = false
+        runCurrent()
+        assertFalse("a prior refusal must not return after monitoring stops elsewhere", state().hero.startBlocked)
     }
 
     @Test fun liveTraceIsSeededFromStoredRowsThenAppendedFromRealtimeTrimmedAndRecalibrated() = runTest {
@@ -466,6 +649,11 @@ class NowViewModelTest {
         override val realtime = MutableStateFlow(BatteryRepository.Realtime())
         override val calibration = MutableStateFlow(CalibrationState())
         override val settings = MutableStateFlow(AppSettings())
+        override val insights = MutableStateFlow<InsightReport?>(null)
+        override val lastAnalyzedAt = MutableStateFlow<Long?>(null)
+        // Enough comparable sessions by default, so only the learning tests see "still learning".
+        val eligible = MutableStateFlow(5)
+        override val eligibleSessionCount: Flow<Int> = eligible
         override val design = MutableStateFlow<DesignCapacityReading>(DesignCapacityReading.Unknown)
         val cached = MutableStateFlow<AppUsageSnapshot?>(null)
         override val cachedAppUsage: Flow<AppUsageSnapshot?> = cached

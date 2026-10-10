@@ -112,6 +112,34 @@ class CalibrationStoreTest {
         assertState(CalibrationState(milliamps, milliamps, CalibrationSource.DETECTED, 3), restarted)
     }
 
+    @Test fun signOnlyFastPathKeepsStoredWindowEvidenceAfterRestart() = runTest(UnconfinedTestDispatcher()) {
+        prefs.values["detected"] = "MILLIAMPS/INVERTED/4"
+        val restarted = backgroundScope.store()
+        val confirmed = CalibrationState(invertedMilliamps, invertedMilliamps, CalibrationSource.DETECTED, 4)
+        assertState(confirmed, restarted)
+        val writes = prefs.writes
+
+        restarted.positiveWhileDischarging()
+
+        assertEquals("Sign-only evidence must not erase confirmed windows", 4, restarted.state.value.agreeingWindows)
+        assertState(confirmed, restarted)
+        assertEquals("Weaker evidence is not persisted", writes, prefs.writes)
+        assertState(confirmed, backgroundScope.store())
+    }
+
+    @Test fun counterWindowsStillUpdateStoredWindowEvidence() = runTest(UnconfinedTestDispatcher()) {
+        prefs.values["detected"] = "MILLIAMPS/INVERTED/4"
+        val restarted = backgroundScope.store()
+
+        restarted.threeWindows { -it / 1000 }
+
+        assertState(CalibrationState(invertedMilliamps, invertedMilliamps, CalibrationSource.DETECTED, 3), restarted)
+        restarted.discharge(20) { -it / 1000 }
+        val confirmed = CalibrationState(invertedMilliamps, invertedMilliamps, CalibrationSource.DETECTED, 4)
+        assertState(confirmed, restarted)
+        assertState(confirmed, backgroundScope.store())
+    }
+
     @Test fun overridesWinAndOnlyVisibleCorrectionsRaiseTheNotice() = runTest(UnconfinedTestDispatcher()) {
         overrides.value = CalibrationOverrides(unit = CurrentUnit.MILLIAMPS)
         val store = backgroundScope.store()

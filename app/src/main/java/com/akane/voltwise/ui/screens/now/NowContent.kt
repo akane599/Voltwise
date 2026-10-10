@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import com.akane.voltwise.R
+import com.akane.voltwise.battery.apps.AppLabel
 import com.akane.voltwise.ui.components.CalibrationNotice
 import com.akane.voltwise.ui.components.chart.ChartScrubState
 import com.akane.voltwise.ui.components.chart.rememberChartScrubState
@@ -40,15 +41,21 @@ private const val TWO_COLUMN_MIN_WIDTH_DP = 840
 
 /**
  * Now, stateless: [state] in, [onEvent] out. One scrolling page under the status bar (no top bar: the hero is the
- * header). Phones stack notice, hero, trace, since unplug, Today, Health and Top apps; from 840 dp the live half
- * (notice, hero, trace) and the cards sit side by side. The Reset confirmation is local UI state, tied to the window
- * it was opened for: it closes when that window stops being the current one (plugged in, monitoring stopped).
+ * header). Phones stack notice, hero, trace, since unplug, Insights, Today, Health and Top apps; from 840 dp the live
+ * half (notice, hero, trace) and the cards sit side by side. The Reset confirmation is local UI state, tied to the
+ * window it was opened for: it closes when that window stops being the current one (plugged in, monitoring stopped).
+ *
+ * @param insightsApp the label of the app the headline finding names, once loaded (null for a device finding).
+ * @param onOpenInsights the Insights card; [onOpenFinding] its headline. Navigation only, so not [NowEvent]s.
  */
 @Composable
 fun NowContent(
     state: NowUiState,
     onEvent: (NowEvent) -> Unit,
     modifier: Modifier = Modifier,
+    insightsApp: AppLabel? = null,
+    onOpenInsights: () -> Unit = {},
+    onOpenFinding: (key: String) -> Unit = {},
     scrubState: ChartScrubState = rememberChartScrubState(),
 ) {
     // The start of the current window the confirmation was opened for; null when it's closed.
@@ -90,6 +97,15 @@ fun NowContent(
             onReset = { resetWindowStart = currentWindowStart },
             modifier = Modifier.fillMaxWidth(),
         )
+        if (state.showsInsights) {
+            InsightsPanel(
+                state.insightsSummary,
+                headlineApp = insightsApp,
+                onOpenInsights = onOpenInsights,
+                onOpenFinding = onOpenFinding,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         TodayPanel(state.today, onOpen = { onEvent(NowEvent.OpenHistory) }, modifier = Modifier.fillMaxWidth())
         HealthPanel(state.health, onOpen = { onEvent(NowEvent.OpenHealth) }, modifier = Modifier.fillMaxWidth())
         TopAppsPanel(
