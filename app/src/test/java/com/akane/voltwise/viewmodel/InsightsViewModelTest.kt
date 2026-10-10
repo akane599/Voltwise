@@ -206,7 +206,7 @@ class InsightsViewModelTest {
         assertEquals(key.key, vm.state.value.headline?.key)
         assertEquals(listOf(key.key), vm.state.value.keyFindings.map { it.key })
         assertEquals(listOf("trend.up", "trend.down"), vm.state.value.changes.map { it.key })
-        assertEquals(listOf(InsightActionStatus.APPLIED, InsightActionStatus.UNKNOWN), vm.state.value.appliedActions.filter { it.undoable }.map { it.status })
+        assertEquals(listOf(InsightActionStatus.PREPARED, InsightActionStatus.APPLIED, InsightActionStatus.UNKNOWN), vm.state.value.appliedActions.filter { it.undoable }.map { it.status })
         assertEquals(effect.key, vm.state.value.appliedActions.first().effect?.key)
         assertEquals(100L, vm.state.value.lastAnalyzedAt)
         assertFalse(vm.state.value.empty)
