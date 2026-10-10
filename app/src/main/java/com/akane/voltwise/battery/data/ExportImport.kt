@@ -14,7 +14,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
@@ -35,7 +34,6 @@ data class BatteryExport(
     val toEpochMs: Long? = null,
     val units: Map<String, String> = emptyMap(),
     val reportingPeriod: String? = null,
-    @Transient val appUsage: List<SessionAppUsage> = emptyList(), // ignored legacy format 3–4 input
 )
 
 /** 5: nullable Doze durations. Formats 1–4 still import with unknown Doze. */
@@ -221,7 +219,7 @@ class ExportImportManager(private val context: Context, private val db: BatteryD
                     skipped++; continue
                 }
                 val plan = HistoryPolicy.planSessionImport(db.sessionDao().byId(session.sessionId), original,
-                    hasAppUsage = false, formatVersion = payload.formatVersion)
+                    formatVersion = payload.formatVersion)
                 when (plan.disposition) {
                     ImportSessionDisposition.ADDED -> db.sessionDao().insert(plan.session)
                     ImportSessionDisposition.UPDATED -> db.sessionDao().update(plan.session)

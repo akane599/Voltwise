@@ -1,6 +1,7 @@
 package com.akane.voltwise.battery.data
 
 import com.akane.voltwise.battery.apps.AppUsageBasis
+import com.akane.voltwise.battery.apps.AppUsageStatus
 import com.akane.voltwise.battery.data.db.ChargeSession
 import com.akane.voltwise.battery.data.db.SessionAppUsage
 import com.akane.voltwise.battery.data.db.SessionType
@@ -45,7 +46,7 @@ class HistoryFormatFiveTest {
             assertNull(imported.dozeMs)
             assertNull(imported.screenOffDozeMs)
             val plan = HistoryPolicy.planSessionImport(null, restored.sessions.single(),
-                hasAppUsage = false, formatVersion = restored.formatVersion)
+                formatVersion = restored.formatVersion)
             assertNull(plan.session.dozeMs)
             assertNull(plan.session.screenOffDozeMs)
             val missing = session().copy(dozeMs = null, screenOffDozeMs = null)
@@ -61,26 +62,26 @@ class HistoryFormatFiveTest {
             put("sessions", JsonArray(listOf(record)))
         })
         val imported = HistoryPolicy.planSessionImport(null, payload.sessions.single(),
-            hasAppUsage = false, formatVersion = payload.formatVersion).session
+            formatVersion = payload.formatVersion).session
         assertNull(imported.dozeMs)
         assertNull(imported.screenOffDozeMs)
     }
 
     @Test fun formatFiveEnrichesLegacyDozeAndLegacyReimportKeepsKnownEvidence() {
         val old = HistoryPolicy.session(session(), 4)
-        val enriched = HistoryPolicy.planSessionImport(old, session(), hasAppUsage = false)
+        val enriched = HistoryPolicy.planSessionImport(old, session())
         assertEquals(ImportSessionDisposition.UPDATED, enriched.disposition)
         assertEquals(7000L, enriched.session.dozeMs)
         assertEquals(6000L, enriched.session.screenOffDozeMs)
         val repeated = HistoryPolicy.planSessionImport(enriched.session, session(),
-            hasAppUsage = false, formatVersion = 4)
+            formatVersion = 4)
         assertEquals(ImportSessionDisposition.UNCHANGED, repeated.disposition)
         assertEquals(enriched.session, repeated.session)
         assertThrows(IllegalArgumentException::class.java) {
-            HistoryPolicy.planSessionImport(enriched.session, session().copy(dozeMs = 6999), hasAppUsage = false)
+            HistoryPolicy.planSessionImport(enriched.session, session().copy(dozeMs = 6999))
         }
         assertThrows(IllegalArgumentException::class.java) {
-            HistoryPolicy.planSessionImport(enriched.session, session().copy(screenOffDozeMs = 5999), hasAppUsage = false)
+            HistoryPolicy.planSessionImport(enriched.session, session().copy(screenOffDozeMs = 5999))
         }
     }
 
@@ -88,7 +89,7 @@ class HistoryFormatFiveTest {
         val previous = HistoryPolicy.session(session())
         val incoming = session().copy(endTime = 12_000, observedMs = 11_000,
             screenOffMs = 9000, dozeMs = null, screenOffDozeMs = null)
-        val updated = HistoryPolicy.planSessionImport(previous, incoming, hasAppUsage = false)
+        val updated = HistoryPolicy.planSessionImport(previous, incoming)
         assertEquals(ImportSessionDisposition.UPDATED, updated.disposition)
         assertNull(updated.session.dozeMs)
         assertNull(updated.session.screenOffDozeMs)
@@ -128,13 +129,13 @@ class HistoryFormatFiveTest {
     @Test fun legacyUsageTagsNeverEnterJsonOrSessionCsvAndRoundTripAsAbsent() {
         val malicious = SessionAppUsage("doze", 0, 10_001, "example.app", 1.0,
             basis = AppUsageBasis.DELTA, topWakelockTag = "=1+1", topAlarmTag = "+1+1", topJobName = "@SUM(1)")
-        val payload = BatteryExport(sessions = listOf(session()), formatVersion = 5, appUsage = listOf(malicious))
+        val payload = BatteryExport(sessions = listOf(session()), formatVersion = 5)
         val encoded = json.encodeToString(BatteryExport.serializer(), payload)
         assertFalse(encoded.contains("appUsage\":"))
         assertFalse(encoded.contains("=1+1"))
         assertFalse(encoded.contains("topWakelockTag"))
         val restored = json.decodeFromString(BatteryExport.serializer(), encoded)
-        assertTrue(restored.appUsage.isEmpty())
+        assertEquals(payload, restored)
         // CSV uses this exact session serializer, and emits no per-app file.
         val record = json.encodeToJsonElement(HistorySessionSerializer, payload.sessions.single()).jsonObject
         val csv = StringWriter().also { writer ->
@@ -146,11 +147,28 @@ class HistoryFormatFiveTest {
         assertFalse(csv.contains("appCapture"))
         val legacy = JsonObject(json.parseToJsonElement(encoded).jsonObject +
             ("appUsage" to json.encodeToJsonElement(listOf(malicious))))
-        assertTrue(json.decodeFromJsonElement(BatteryExport.serializer(), legacy).appUsage.isEmpty())
-        val validated = HistoryPolicy.appUsage(listOf(malicious)).single()
-        assertNull(validated.topWakelockTag)
-        assertNull(validated.topAlarmTag)
-        assertNull(validated.topJobName)
+        assertEquals(payload, json.decodeFromJsonElement(BatteryExport.serializer(), legacy))
+    }
+
+    @Test fun legacyFormatThreeAndFourUsageKeysAreIgnoredAndReadyClaimsAreStripped() {
+        val ready = session().copy(appUsageStatus = AppUsageStatus.READY,
+            appUsageBasis = AppUsageBasis.DELTA)
+        for (format in 3..4) {
+            val legacy = buildJsonObject {
+                put("formatVersion", format)
+                put("sessions", JsonArray(listOf(json.encodeToJsonElement(HistorySessionSerializer, ready))))
+                // Unknown legacy evidence is skipped rather than validated or restored.
+                put("appUsage", JsonArray(listOf(buildJsonObject { put("rank", "invalid") })))
+            }
+            val payload = json.decodeFromJsonElement(BatteryExport.serializer(), legacy)
+            assertEquals(listOf(ready), payload.sessions)
+            val plan = HistoryPolicy.planSessionImport(null, payload.sessions.single(),
+                formatVersion = payload.formatVersion)
+            assertEquals(ImportSessionDisposition.ADDED, plan.disposition)
+            assertEquals("import:doze", plan.session.sessionId)
+            assertNull(plan.session.appUsageStatus)
+            assertNull(plan.session.appUsageBasis)
+        }
     }
 
     @Test fun handMadeCaptureWindowsAreIgnoredWithoutValidationOrImport() {

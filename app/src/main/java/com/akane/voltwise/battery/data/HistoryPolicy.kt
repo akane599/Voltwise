@@ -6,7 +6,6 @@ import com.akane.voltwise.battery.apps.AppUsageStatus
 import com.akane.voltwise.battery.data.db.BatteryDatabase
 import com.akane.voltwise.battery.data.db.BatterySample
 import com.akane.voltwise.battery.data.db.ChargeSession
-import com.akane.voltwise.battery.data.db.SessionAppUsage
 import com.akane.voltwise.battery.measurement.BatteryReading
 import kotlinx.serialization.json.Json
 import java.nio.ByteBuffer
@@ -23,7 +22,6 @@ internal enum class ImportSessionDisposition(val added: Int = 0, val updated: In
 }
 
 internal data class SessionImportPlan(val session: ChargeSession, val disposition: ImportSessionDisposition)
-internal data class UsageImportPlan(val rows: List<SessionAppUsage>, val updated: Int, val unchanged: Int)
 
 /** Imported records are historical evidence, never a resumed live observation. */
 object HistoryPolicy {
@@ -172,11 +170,11 @@ object HistoryPolicy {
             capacityEstimateMah = capacity.capacityEstimateMah, capacityConfidence = capacity.capacityConfidence, capacityBasis = capacity.capacityBasis)
     }
     /** Plans raw rows before normalization can shrink coverage; keeps stale skips distinct from enrichment. */
-    internal fun planSessionImport(previous: ChargeSession?, incoming: ChargeSession, hasAppUsage: Boolean,
+    internal fun planSessionImport(previous: ChargeSession?, incoming: ChargeSession,
         formatVersion: Int = HISTORY_FORMAT_VERSION): SessionImportPlan {
-        // READY describes rows in this copy, not the source's omitted breakdown. A partial copy can
-        // still retain an existing breakdown through mergeDerived, and a full copy can enrich it later.
-        val candidate = session(if (!hasAppUsage && incoming.appUsageStatus == AppUsageStatus.READY)
+        // whittle: imports omit per-app evidence, so strip the incoming READY status/basis.
+        // Revisit only if portable per-app evidence is supported; mergeDerived keeps existing local evidence.
+        val candidate = session(if (incoming.appUsageStatus == AppUsageStatus.READY)
             incoming.copy(appUsageStatus = null, appUsageBasis = null) else incoming, formatVersion)
         val stored = previous?.let { session(it) } ?: return SessionImportPlan(candidate, ImportSessionDisposition.ADDED)
         val merged = mergeDerived(stored, candidate)
@@ -192,44 +190,6 @@ object HistoryPolicy {
         return SessionImportPlan(merged, ImportSessionDisposition.UPDATED)
     }
 
-    /** Called only after this transaction writes the validated breakdown (including a usage-only CSV). */
-    internal fun withImportedUsage(session: ChargeSession, rows: List<SessionAppUsage>): ChargeSession {
-        if (!session.source.startsWith("import:") || session.appUsageStatus != null || rows.isEmpty()) return session
-        return session.copy(appUsageStatus = AppUsageStatus.READY, appUsageBasis = rows.first().basis)
-    }
-
-    /** A usage-only write counts once, promoting an unchanged parent rather than counting it twice. */
-    internal fun planUsageImport(
-        parent: ImportSessionDisposition?,
-        localSource: String?,
-        parentExists: Boolean,
-        previous: List<SessionAppUsage>,
-        incoming: List<SessionAppUsage>,
-    ): UsageImportPlan? {
-        if (parent == ImportSessionDisposition.STALE || localSource != null && !localSource.startsWith("import:")) return null
-        require(parentExists) { "App usage belongs to a session that is not in history" }
-        val ordered = incoming.sortedBy { it.rank }
-        if (previous == ordered) return null
-        val updated = if (parent == ImportSessionDisposition.ADDED || parent == ImportSessionDisposition.UPDATED) 0 else 1
-        return UsageImportPlan(ordered, updated, if (parent == ImportSessionDisposition.UNCHANGED) -1 else 0)
-    }
-
-    /** Validates a file's per-app rows as whole per-session breakdowns: unique ranks 0..30, at most one "others" row. */
-    fun appUsage(input: List<SessionAppUsage>): List<SessionAppUsage> {
-        val rows = input.map { row ->
-            require(row.rank in 0 until SessionAppUsage.MAX_ROWS) { "Invalid app usage rank" }
-            require(row.powerMah.isFinite() && row.powerMah in 0.0..1_000_000.0) { "Invalid app usage charge; expected mAh" }
-            require(listOf(row.cpuTimeMs, row.foregroundTimeMs, row.backgroundTimeMs, row.wakelockTimeMs, row.mobileBytes, row.wifiBytes)
-                .all { it == null || it >= 0 }) { "Invalid app usage totals" }
-            row.copy(sessionId = checkNotNull(identity(row.sessionId)), packageName = row.packageName.also(::text),
-                topWakelockTag = null, topAlarmTag = null, topJobName = null)
-        }
-        for (group in rows.groupBy { it.sessionId }.values) {
-            require(group.distinctBy { it.rank }.size == group.size) { "Duplicate app usage rank" }
-            require(group.count { it.isOthers } <= 1) { "More than one aggregated app usage row" }
-        }
-        return rows
-    }
     fun sameOrigin(first: ChargeSession, second: ChargeSession): Boolean =
         originalId(first.sessionId) == originalId(second.sessionId) && first.startTime == second.startTime && first.type == second.type &&
             first.observationId?.let(::originalId) == second.observationId?.let(::originalId)

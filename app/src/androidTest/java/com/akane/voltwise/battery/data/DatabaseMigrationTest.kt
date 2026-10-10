@@ -116,7 +116,7 @@ class DatabaseMigrationTest {
             val usage = db.appUsageDao()
             assertTrue(usage.snapshots().isEmpty())
             assertTrue(usage.snapshotUids(1).isEmpty())
-            assertNull(usage.sessionUsageRows("v6").single().topJobName)
+            assertNull(usage.sessionUsage("v6").first().single().topJobName)
             val updated = session.copy(dozeMs = 20, screenOffDozeMs = 10, appCaptureStartMs = 1, appCaptureEndMs = 100)
             db.sessionDao().upsert(updated)
             assertEquals(updated, db.sessionDao().byId("v6"))
@@ -152,7 +152,7 @@ class DatabaseMigrationTest {
             insights.upsertFindings(listOf(finding))
             insights.upsertFindings(listOf(finding.copy(score = 3.0)))
             insights.setStatus("key", InsightFindingStatus.DISMISSED)
-            insights.setFeedback("key", 2.0)
+            insights.upsertFindings(insights.findingsOnce().map { it.copy(feedbackMultiplier = 2.0) })
             assertEquals(listOf(finding.copy(score = 3.0, status = InsightFindingStatus.DISMISSED, feedbackMultiplier = 2.0)), insights.findingsOnce())
             assertEquals(insights.findingsOnce(), insights.findings().first())
             val action = InsightActionEntity(findingKey = "key", type = "RESTRICT_BACKGROUND", userId = 0,
@@ -305,7 +305,7 @@ class DatabaseMigrationTest {
             assertEquals(0, db.count("app_snapshot_uids"))
             assertEquals(0, db.count("snapshot_device_wakers"))
             assertTrue(usage.sessionWakers(listOf("v8")).isEmpty())
-            val rows = usage.sessionUsageRows("v8")
+            val rows = usage.sessionUsage("v8").first()
             assertEquals(listOf(SessionAppUsage(
                 "v8", 0, 10_002, "victim.app", 5.0, cpuTimeMs = 1_000,
                 basis = AppUsageBasis.DELTA, wakeupAlarms = 100_000, jobCount = 500, jobMs = 600_000,

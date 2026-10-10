@@ -3,7 +3,6 @@ package com.akane.voltwise.battery.data
 import com.akane.voltwise.battery.apps.AppUsageBasis
 import com.akane.voltwise.battery.apps.AppUsageStatus
 import com.akane.voltwise.battery.data.db.ChargeSession
-import com.akane.voltwise.battery.data.db.SessionAppUsage
 import com.akane.voltwise.battery.data.db.SessionType
 import org.junit.Assert.*
 import org.junit.Test
@@ -17,175 +16,18 @@ class ImportUsageMergeTest {
         appUsageStatus = AppUsageStatus.READY, appUsageBasis = AppUsageBasis.DELTA,
     )
 
-    private fun rows(packageName: String) = listOf(
-        SessionAppUsage("session", 0, 10_123, packageName, 1.5, basis = AppUsageBasis.DELTA),
-    )
-
-    /** In-memory writes driven by the same parent and usage plans consumed by importPayload. */
-    private class History(var local: ChargeSession? = null) {
-        var stored: ChargeSession? = null
-        var usage = emptyList<SessionAppUsage>()
-        var usageWrites = 0
-
-        fun import(session: ChargeSession? = null, rows: List<SessionAppUsage>): HistoryImportResult {
-            val normalized = HistoryPolicy.appUsage(rows)
-            val parent = session?.let {
-                HistoryPolicy.planSessionImport(stored, it,
-                    hasAppUsage = normalized.any { row -> row.sessionId == HistoryPolicy.session(it).sessionId })
-            }
-            if (parent != null) stored = parent.session
-            val disposition = parent?.disposition
-            val plan = if (normalized.isEmpty()) null else HistoryPolicy.planUsageImport(
-                disposition, local?.source, stored != null, usage, normalized,
-            )
-            if (plan != null) {
-                usage = plan.rows
-                usageWrites++
-                stored = HistoryPolicy.withImportedUsage(checkNotNull(stored), plan.rows)
-            }
-            return HistoryImportResult(
-                0, disposition?.added ?: 0,
-                (disposition?.updated ?: 0) + (plan?.updated ?: 0),
-                (disposition?.unchanged ?: 0) + (plan?.unchanged ?: 0),
-            )
-        }
-    }
-
     @Test fun sessionsOnlyPayloadDoesNotClaimAReadyBreakdown() {
-        val history = History()
-        assertEquals(HistoryImportResult(0, 1, 0, 0), history.import(session(), emptyList()))
-        assertNull(history.stored?.appUsageStatus)
-        assertNull(history.stored?.appUsageBasis)
-        assertTrue(history.usage.isEmpty())
-        assertEquals(0, history.usageWrites)
-    }
-
-    @Test fun payloadWithUsageRowsKeepsReady() {
-        val history = History()
-        assertEquals(HistoryImportResult(0, 1, 0, 0), history.import(session(), rows("app.a")))
-        assertEquals(AppUsageStatus.READY, history.stored?.appUsageStatus)
-        assertEquals(AppUsageBasis.DELTA, history.stored?.appUsageBasis)
-        assertEquals(HistoryPolicy.appUsage(rows("app.a")), history.usage)
-    }
-
-    @Test fun fullBackupUpgradesSessionsOnlyCopyToReadyAndCountsOneUpdate() {
-        val history = History()
-        history.import(session(), emptyList())
-        assertEquals(HistoryImportResult(0, 0, 1, 0), history.import(session(), rows("app.a")))
-        assertEquals(AppUsageStatus.READY, history.stored?.appUsageStatus)
-        assertEquals(AppUsageBasis.DELTA, history.stored?.appUsageBasis)
-        assertEquals(HistoryPolicy.appUsage(rows("app.a")), history.usage)
-        assertEquals(1, history.usageWrites)
-        assertEquals(HistoryImportResult(0, 0, 0, 1), history.import(session(), rows("app.a")))
-    }
-
-    @Test fun sessionsCsvThenUsageCsvPromotesImportedCopyToReady() {
-        val history = History()
-        history.import(session(), emptyList())
-        assertNull(history.stored?.appUsageStatus)
-        val breakdown = rows("app.a").map { it.copy(basis = AppUsageBasis.WINDOW_RESET) }
-        assertEquals(HistoryImportResult(0, 0, 1, 0), history.import(rows = breakdown))
-        assertEquals(AppUsageStatus.READY, history.stored?.appUsageStatus)
-        assertEquals(AppUsageBasis.WINDOW_RESET, history.stored?.appUsageBasis)
-        assertEquals(HistoryPolicy.appUsage(breakdown), history.usage)
-        assertEquals(1, history.usageWrites)
-    }
-
-    @Test fun sessionsOnlyReimportRetainsAnExistingReadyBreakdown() {
-        val history = History()
-        history.import(session(), rows("app.a"))
-        val parent = history.stored
-        val breakdown = history.usage
-        assertEquals(HistoryImportResult(0, 0, 0, 1), history.import(session(), emptyList()))
-        assertEquals(parent, history.stored)
-        assertEquals(breakdown, history.usage)
-        assertEquals(1, history.usageWrites)
-    }
-
-    @Test fun newerAThenOlderBKeepsAAndReportsNoUsageChange() {
-        val history = History()
-        assertEquals(HistoryImportResult(0, 1, 0, 0), history.import(session(), rows("app.a")))
-        val newer = history.stored
-        val breakdownA = history.usage
-        assertEquals(HistoryImportResult(0, 0, 0, 1), history.import(session(1500), rows("app.b")))
-        assertEquals(newer, history.stored)
-        assertEquals(2000L, history.stored?.endTime)
-        assertEquals(breakdownA, history.usage)
-        assertEquals(1, history.usageWrites)
-    }
-
-    @Test fun sameWindowBReplacesAAndCountsOneUpdatedSession() {
-        val history = History()
-        history.import(session(), rows("app.a"))
-        val parent = history.stored
-        assertEquals(HistoryImportResult(0, 0, 1, 0), history.import(session(), rows("app.b")))
-        assertEquals(parent, history.stored)
-        assertEquals(HistoryPolicy.appUsage(rows("app.b")), history.usage)
-        assertEquals(2, history.usageWrites)
-        assertEquals(HistoryImportResult(0, 0, 0, 1), history.import(session(), rows("app.b")))
-        assertEquals(2, history.usageWrites)
-    }
-
-    @Test fun standaloneUsageStillAttachesToAnExistingImportedSession() {
-        val history = History()
-        history.stored = HistoryPolicy.session(session())
-        assertEquals(HistoryImportResult(0, 0, 1, 0), history.import(rows = rows("app.b")))
-        assertEquals(HistoryPolicy.appUsage(rows("app.b")), history.usage)
-        assertEquals(1, history.usageWrites)
-        assertEquals(HistoryImportResult(0, 0, 0, 0), history.import(rows = rows("app.b")))
-        assertEquals(1, history.usageWrites)
-    }
-
-    @Test fun usageForALocalSessionIsIgnoredEvenWithoutAnImportedParent() {
-        val history = History(local = session().copy(appUsageStatus = null, appUsageBasis = null))
-        val local = history.local
-        val breakdownA = rows("app.a")
-        history.usage = breakdownA
-        assertEquals(HistoryImportResult(0, 0, 0, 0), history.import(rows = rows("app.b")))
-        assertEquals(breakdownA, history.usage)
-        assertEquals(local, history.local)
-        assertNull(history.local?.appUsageStatus)
-        assertEquals(0, history.usageWrites)
-    }
-
-    @Test fun advancingParentAndBreakdownCountsOnlyOneUpdate() {
-        val history = History()
-        history.import(session(1500), rows("app.a"))
-        assertEquals(HistoryImportResult(0, 0, 1, 0), history.import(session(), rows("app.b")))
-        assertEquals(2000L, history.stored?.endTime)
-        assertEquals(HistoryPolicy.appUsage(rows("app.b")), history.usage)
-    }
-
-    @Test fun derivedParentUpdateAndBreakdownCountsOnlyOneUpdate() {
-        val history = History()
-        history.import(session(), rows("app.a"))
-        val enriched = session().copy(capacityEstimateMah = 4800)
-        assertEquals(HistoryImportResult(0, 0, 1, 0), history.import(enriched, rows("app.b")))
-        assertEquals(4800, history.stored?.capacityEstimateMah)
-        assertEquals(HistoryPolicy.appUsage(rows("app.b")), history.usage)
-    }
-
-    @Test fun unchangedBreakdownIsNotRewrittenAndIncomingRanksAreOrdered() {
-        val history = History()
-        val ordered = rows("app.a") + rows("app.b").single().copy(rank = 1)
-        history.import(session(), ordered)
-        assertEquals(HistoryImportResult(0, 0, 0, 1), history.import(session(), ordered.reversed()))
-        assertEquals(HistoryPolicy.appUsage(ordered), history.usage)
-        assertEquals(1, history.usageWrites)
-    }
-
-    @Test fun standaloneUsageWithoutAParentIsRejected() {
-        val history = History()
-        assertThrows(IllegalArgumentException::class.java) { history.import(rows = rows("app.b")) }
-        assertEquals(emptyList<SessionAppUsage>(), history.usage)
-        assertEquals(0, history.usageWrites)
+        val plan = HistoryPolicy.planSessionImport(null, session())
+        assertEquals(ImportSessionDisposition.ADDED, plan.disposition)
+        assertNull(plan.session.appUsageStatus)
+        assertNull(plan.session.appUsageBasis)
     }
 
     @Test fun conflictingOriginAndSameWindowMeasurementsRemainRejected() {
         val previous = HistoryPolicy.session(session())
         for (incoming in listOf(session(1500).copy(observationId = "foreign"), session().copy(endLevel = 58))) {
             assertThrows(IllegalArgumentException::class.java) {
-                HistoryPolicy.planSessionImport(previous, incoming, hasAppUsage = true)
+                HistoryPolicy.planSessionImport(previous, incoming)
             }
         }
     }
