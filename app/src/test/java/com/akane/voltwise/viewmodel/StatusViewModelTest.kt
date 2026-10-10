@@ -249,6 +249,13 @@ class StatusViewModelTest {
         assertEquals(StatusIssueKind.entries.size, StatusViewModel.issues(every).size)
     }
 
+    @Test fun advancedIncompleteIsDiagnosticReportOnlyNotAnOnScreenIssue() = runTest {
+        val (_, state) = start()
+        repo.events.value = listOf(DiagnosticEvent(DiagnosticCode.ADVANCED_INCOMPLETE, 100, 200, count = 2))
+        runCurrent()
+        assertTrue("ADVANCED_INCOMPLETE must not add an on-screen status issue", state().issues.isEmpty())
+    }
+
     @Test fun reportComesFromTheRepositoryAndAFailedShareIsShown() = runTest {
         val (vm, state) = start()
         assertEquals("report", vm.report())

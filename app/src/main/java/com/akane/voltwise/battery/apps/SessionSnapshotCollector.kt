@@ -3,6 +3,7 @@ package com.akane.voltwise.battery.apps
 import android.util.Log
 import com.akane.voltwise.battery.data.PowerTransition
 import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.diagnostics.DiagnosticCode
 import com.akane.voltwise.battery.measurement.PowerState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,7 @@ class SessionSnapshotCollector(
     private val transitions: Flow<PowerTransition>,
     private val log: (String) -> Unit = { Log.d(LOG_TAG, it) },
     private val warn: (String) -> Unit = { Log.w(LOG_TAG, it) },
+    private val onDiagnostic: (DiagnosticCode) -> Unit = {},
 ) {
     private val writes = Mutex()
     private val finalized = mutableSetOf<String>()
@@ -94,6 +96,7 @@ class SessionSnapshotCollector(
         when (val result = stats.snapshot(force = true)) {
             is AppStatsResult.Ready -> {
                 if (!result.snapshot.appMeasurementsComplete || result.snapshot.rejectedAppPowerRecords > 0) {
+                    onDiagnostic(DiagnosticCode.ADVANCED_INCOMPLETE)
                     log("baseline skipped: incomplete app measurements")
                     return
                 }
@@ -144,6 +147,7 @@ class SessionSnapshotCollector(
                     val computed = AppUsageDelta.compute(store.baseline(sessionId), end)
                     // Incomplete app evidence may include UIDs absent from the baseline, so matching UIDs is insufficient.
                     val delta = if (!result.snapshot.appMeasurementsComplete || result.snapshot.rejectedAppPowerRecords > 0) {
+                        onDiagnostic(DiagnosticCode.ADVANCED_INCOMPLETE)
                         computed.copy(captureStartMs = null)
                     } else computed
                     if (store.saveEnd(sessionId, end, delta)) {
