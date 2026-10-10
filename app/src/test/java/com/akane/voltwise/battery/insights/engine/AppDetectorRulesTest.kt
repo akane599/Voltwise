@@ -247,6 +247,44 @@ class AppDetectorRulesTest {
         assertFalse(findings.any { it.subject == Subject.Device })
     }
 
+    @Test fun medianScaleFloorSuppressesSubDoublingChangesAndRespectsFeedback() {
+        for (history in listOf(listOf(100.0, 100.0, 100.0, 100.0), listOf(99.0, 100.0, 100.0, 101.0))) {
+            val template = detectorInputs(FindingType.APP_DRAIN_ANOMALY)
+            fun findings(power: Double, multiplier: Double = 1.0) = AppDrainAnomaly.detect(context(template.copy(
+                appSessions = template.appSessions.mapIndexed { index, row ->
+                    row.copy(powerMah = history.getOrNull(index) ?: power)
+                },
+                feedback = mapOf("APP_DRAIN_ANOMALY:$APP" to multiplier),
+            )))
+            assertTrue("A near-flat baseline must not amplify a sub-doubling rise", findings(199.9).isEmpty())
+            val doubled = findings(200.0).single()
+            assertEquals(com.akane.voltwise.battery.insights.model.Severity.MEDIUM, doubled.severity)
+            assertEquals(30.0, doubled.score, 1e-9)
+            doubled.series.forEach { point ->
+                assertEquals(0.0, point.baselineLow!!, 0.0)
+                assertEquals(200.0, point.baselineHigh!!, 0.0)
+            }
+            assertTrue("Feedback also scales the median-relative requirement", findings(249.9, 1.5).isEmpty())
+            assertEquals(1, findings(250.0, 1.5).size)
+            assertEquals(com.akane.voltwise.battery.insights.model.Severity.HIGH, findings(300.0).single().severity)
+        }
+    }
+
+    @Test fun madBandStillDominatesWhenWiderThanMedian() {
+        val template = detectorInputs(FindingType.APP_DRAIN_ANOMALY)
+        val history = listOf(0.0, 100.0, 200.0, 300.0)
+        val finding = AppDrainAnomaly.detect(context(template.copy(
+            appSessions = template.appSessions.mapIndexed { index, row ->
+                row.copy(powerMah = history.getOrNull(index) ?: 700.0)
+            },
+        ))).single()
+        assertEquals(200.0, finding.evidence.single().baseline!!, 0.0)
+        finding.series.forEach { point ->
+            assertEquals(0.0, point.baselineLow!!, 0.0)
+            assertEquals(200.0 + 3.0 * 1.4826 * 100.0, point.baselineHigh!!, 1e-9)
+        }
+    }
+
     @Test fun badFeedbackCannotWeakenOrPoisonThresholds() {
         val input = detectorInputs(FindingType.APP_DRAIN_ANOMALY)
         val normal = appFindings(input)
