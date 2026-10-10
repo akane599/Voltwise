@@ -87,7 +87,7 @@ class InsightsViewModelTest {
             override fun installedUid(pkg: String, userId: Int): Int? = error("unexpected inspection")
             override fun packagesForUid(uid: Int): List<String> = error("unexpected inspection")
             override fun roleHolders(): Set<String> = error("unexpected inspection")
-        }, { now }, {})
+        }, { now }, {}, { true })
         var mode = ShellRunner.Mode.SHIZUKU
         var probes = 0
         val shell = ShellRunner({ probes++; mode }, { _, _, _ -> error("unexpected shell call") }, { false }, { 0L })
@@ -161,7 +161,7 @@ class InsightsViewModelTest {
             override fun installedUid(pkg: String, userId: Int): Int? = error("unexpected inspection")
             override fun packagesForUid(uid: Int): List<String> = error("unexpected inspection")
             override fun roleHolders(): Set<String> = error("unexpected inspection")
-        }, { now }, {})
+        }, { now }, {}, { true })
         val shell = ShellRunner({ ShellRunner.Mode.NONE }, { _, _, _ -> error("unexpected shell call") }, { false }, { 0L })
         val adapter = DefaultInsightsRepository(insights, journal, shell, sessions, { now })
         insights.refresh()
@@ -640,6 +640,30 @@ class InsightsViewModelTest {
         assertEquals(listOf(InsightUiEffect.OpenFinding("three")), effects)
         assertEquals("OpenFinding must preserve the details route argument", "details-route", saved.get<String>("key"))
         assertTrue(source.applied.isEmpty())
+    }
+
+    @Test fun highBatteryAlertMessageCarriesNotificationsBlockedInStateAndEffect() = runTest {
+        val finding = insightFinding().copy(
+            subject = Subject.Device,
+            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, false, false)),
+        )
+        source.report.value = InsightReport(1, listOf(finding), finding)
+        val vm = start()
+        val effects = mutableListOf<InsightUiEffect>()
+        backgroundScope.launch { vm.effects.collect { effects += it } }
+        for (blocked in listOf(true, false)) {
+            source.result = ActionResult.OneShot(19, notificationsBlocked = blocked)
+            vm.onEvent(InsightsEvent.RequestApply("finding", ActionType.ENABLE_HIGH_BATTERY_ALERT))
+            vm.onEvent(InsightsEvent.ConfirmApply)
+            runCurrent()
+            val message = checkNotNull(vm.state.value.apply.lastResult)
+            assertEquals(InsightMessageCode.ONE_SHOT, message.code)
+            assertEquals(19L, message.actionId)
+            assertEquals("The message must preserve the notification postability outcome", blocked, message.notificationsBlocked)
+            assertEquals(message, (effects.last() as InsightUiEffect.Message).result)
+            assertEquals(message, results.latest.value)
+        }
+        assertEquals(2, source.applied.size)
     }
 
     @Test fun everyActionResultAndRefusalGetsItsFixedCodeOrSettingsEvent() = runTest {

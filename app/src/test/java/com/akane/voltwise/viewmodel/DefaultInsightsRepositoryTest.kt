@@ -435,7 +435,7 @@ class DefaultInsightsRepositoryTest {
             override fun installedUid(pkg: String, userId: Int): Int? = error("unexpected inspection")
             override fun packagesForUid(uid: Int): List<String> = error("unexpected inspection")
             override fun roleHolders(): Set<String> = error("unexpected inspection")
-        }, { 100L }, {})
+        }, { 100L }, {}, { true })
         val adapter = DefaultInsightsRepository(insights, actions, shell, sessions)
     }
 
@@ -459,7 +459,7 @@ class DefaultInsightsRepositoryTest {
             override fun installedUid(pkg: String, userId: Int): Int? = error("unexpected inspection")
             override fun packagesForUid(uid: Int): List<String> = error("unexpected inspection")
             override fun roleHolders(): Set<String> = error("unexpected inspection")
-        }, { 0L }, {})
+        }, { 0L }, {}, { true })
         return DefaultInsightsRepository(insights, actions, shell, sessions)
     }
 

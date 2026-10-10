@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.akane.voltwise.battery.insights.InsightNotificationPolicy
 import com.akane.voltwise.battery.insights.InsightNotifier
+import com.akane.voltwise.battery.util.Notifier
 import com.akane.voltwise.battery.insights.InsightRepository
 import com.akane.voltwise.battery.insights.readUserDozeWhitelist
 import com.akane.voltwise.battery.insights.actions.ActionExecutor
@@ -182,6 +183,7 @@ val appModule = module {
         InsightActionRepository(
             get(), get(), get(), System::currentTimeMillis,
             alertEnabler = { get<SettingsRepository<AppSettings>>().set(AppSettings::highBatteryAlertEnabled.name, true) },
+            alertsPostable = { Notifier.canPostAlerts(androidContext()) },
         )
     }
     single {
