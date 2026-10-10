@@ -62,13 +62,12 @@ object FindingCodec {
             entity.key, type, severity, confidence, entity.score, subject, enumName<Direction>(payload.direction),
             payload.evidence.mapNotNull {
                 val metric = enumName<Metric>(it.metric) ?: return@mapNotNull null
-                val unit = enumName<MetricUnit>(it.unit) ?: return@mapNotNull null
-                Evidence(metric, it.observed, it.baseline, unit, it.sessions)
+                Evidence(metric, it.observed, it.baseline, metric.unit, it.sessions)
             },
             payload.series.map { SeriesPoint(it.atMs, it.value, it.baselineLow, it.baselineHigh) },
             payload.recommendations.mapNotNull {
                 val action = enumName<ActionType>(it.action) ?: return@mapNotNull null
-                Recommendation(action, it.reversible, it.requiresPrivilege)
+                Recommendation(action, action.reversible, action.requiresPrivilege)
             },
             if (entity.evidenceVersion == 1) emptyList() else payload.attributions.mapNotNull {
                 val kind = enumName<AttributionKind>(it.kind) ?: return@mapNotNull null

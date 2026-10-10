@@ -79,6 +79,9 @@ class RecommenderTest {
             assertEquals("$type keeps supported app fixes", expected, recommendations.map { it.action })
             assertTrue(recommendations.filter { it.action != ActionType.OPEN_APP_SETTINGS }.all { it.requiresPrivilege })
             assertTrue(recommendations.filter { it.action == ActionType.OPEN_APP_SETTINGS }.none { it.requiresPrivilege })
+            for (rec in recommendations) {
+                assertEquals("$type ${rec.action} reversibility", rec.action != ActionType.FORCE_STOP, rec.reversible)
+            }
         }
     }
 

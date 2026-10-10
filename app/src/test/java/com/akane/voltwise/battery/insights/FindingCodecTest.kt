@@ -8,11 +8,59 @@ internal fun testFinding(key: String = "DOZE_BLOCKED:device", severity: Severity
     key, FindingType.DOZE_BLOCKED, severity, Confidence.HIGH, 72.0, Subject.Device, Direction.UP,
     listOf(Evidence(Metric.DEEP_DOZE_SHARE, 0.02, 0.7, MetricUnit.SHARE, 5)),
     listOf(SeriesPoint(1, 0.4, 0.6, 0.8), SeriesPoint(2, 0.02, null, null)),
-    listOf(Recommendation(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS, false, false)),
+    listOf(Recommendation(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS, true, false)),
     listOf(Attribution(AttributionKind.KERNEL_WAKELOCK, "waker", null, 40.0, MetricUnit.MS, 5)),
 )
 
 class FindingCodecTest {
+    private val currentRecommendations = listOf(
+        Recommendation(ActionType.RESTRICT_BACKGROUND, true, true),
+        Recommendation(ActionType.STANDBY_BUCKET_RESTRICTED, true, true),
+        Recommendation(ActionType.STANDBY_BUCKET_RARE, true, true),
+        Recommendation(ActionType.FORCE_STOP, false, true),
+        Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true),
+        Recommendation(ActionType.OPEN_APP_SETTINGS, true, false),
+        Recommendation(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS, true, false),
+        Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, true, false),
+    )
+
+    @Test fun storedWrongUnitDecodesToMetricUnit() {
+        val finding = testFinding()
+        val stored = FindingCodec.encode(finding, 1)
+        for (version in 1..FindingCodec.EVIDENCE_VERSION) {
+            val decoded = FindingCodec.decode(stored.copy(
+                evidenceVersion = version,
+                evidenceJson = stored.evidenceJson.replace("\"SHARE\"", "\"CELSIUS\""),
+            ))!!
+            assertEquals("v$version derives the evidence unit from its metric", finding.evidence, decoded.evidence)
+        }
+    }
+
+    @Test fun storedInvertedFlagsDecodeToActionRules() {
+        val finding = testFinding().copy(recommendations = currentRecommendations)
+        val inverted = finding.copy(recommendations = currentRecommendations.map {
+            it.copy(reversible = !it.reversible, requiresPrivilege = !it.requiresPrivilege)
+        })
+        val stored = FindingCodec.encode(inverted, 1)
+        for (version in 1..FindingCodec.EVIDENCE_VERSION) {
+            val decoded = FindingCodec.decode(stored.copy(evidenceVersion = version))!!
+            assertEquals("v$version derives recommendation flags from the action", finding.recommendations, decoded.recommendations)
+        }
+    }
+
+    @Test fun currentActionRulesRoundTripAndCompatibilityFieldsAreWritten() {
+        val finding = testFinding().copy(recommendations = currentRecommendations)
+        val stored = FindingCodec.encode(finding, 1)
+        assertEquals(ActionType.entries.toSet(), currentRecommendations.map { it.action }.toSet())
+        assertEquals(finding, FindingCodec.decode(stored))
+        assertTrue(stored.evidenceJson.contains("\"unit\":\"SHARE\""))
+        for (rec in currentRecommendations) {
+            assertTrue(stored.evidenceJson.contains(
+                """{"action":"${rec.action.name}","reversible":${rec.reversible},"requiresPrivilege":${rec.requiresPrivilege}}""",
+            ))
+        }
+    }
+
     @Test fun roundTripDeviceAndAppIncludingAttributions() {
         for (finding in listOf(testFinding(), testFinding().copy(subject = Subject.App(10001, "example.app")))) {
             val stored = FindingCodec.encode(finding, 10, 20)
@@ -69,6 +117,6 @@ class FindingCodecTest {
         assertNull(decoded.direction)
         assertEquals(testFinding().series, decoded.series)
         val unknownUnit = stored.evidenceJson.replace("\"SHARE\"", "\"FUTURE_UNIT\"")
-        assertTrue(FindingCodec.decode(stored.copy(evidenceJson = unknownUnit))!!.evidence.isEmpty())
+        assertEquals(testFinding().evidence, FindingCodec.decode(stored.copy(evidenceJson = unknownUnit))!!.evidence)
     }
 }

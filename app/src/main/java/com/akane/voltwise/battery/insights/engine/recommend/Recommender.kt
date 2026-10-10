@@ -43,21 +43,17 @@ object Recommender {
         }.map { it.type }.toSet()
         return finding.copy(recommendations = actions.filterNot { action ->
             action in applied || (action == ActionType.ENABLE_HIGH_BATTERY_ALERT && inputs.highBatteryAlertEnabled) ||
-                (privilegedAppActionsBlocked && action in privilegedActions) ||
+                (privilegedAppActionsBlocked && action.requiresPrivilege) ||
                 (invalidPackage && action == ActionType.OPEN_APP_SETTINGS) ||
                 (sdkInt < 28 &&
                     (action == ActionType.RESTRICT_BACKGROUND || action == ActionType.STANDBY_BUCKET_RESTRICTED ||
                         action == ActionType.STANDBY_BUCKET_RARE))
         }.map { action ->
-            Recommendation(action, action != ActionType.FORCE_STOP, action in privilegedActions)
+            Recommendation(action, action.reversible, action.requiresPrivilege)
         })
     }
 
     private val appActions = listOf(
         ActionType.RESTRICT_BACKGROUND, ActionType.STANDBY_BUCKET_RESTRICTED, ActionType.OPEN_APP_SETTINGS,
-    )
-    private val privilegedActions = setOf(
-        ActionType.RESTRICT_BACKGROUND, ActionType.STANDBY_BUCKET_RESTRICTED, ActionType.STANDBY_BUCKET_RARE,
-        ActionType.FORCE_STOP, ActionType.REMOVE_DOZE_WHITELIST,
     )
 }
