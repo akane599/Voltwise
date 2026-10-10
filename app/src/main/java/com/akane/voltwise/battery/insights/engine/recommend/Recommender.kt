@@ -1,5 +1,6 @@
 package com.akane.voltwise.battery.insights.engine.recommend
 
+import com.akane.voltwise.battery.actions.CommandPolicy
 import com.akane.voltwise.battery.insights.model.ActionStatus
 import com.akane.voltwise.battery.insights.model.ActionType
 import com.akane.voltwise.battery.insights.model.Finding
@@ -12,6 +13,9 @@ object Recommender {
     fun recommend(finding: Finding, inputs: InsightInputs, sdkInt: Int): Finding {
         val app = finding.subject as? Subject.App
         val pkg = app?.packageName
+        val invalidPackage = pkg != null && !CommandPolicy.isPackageName(pkg)
+        val privilegedAppActionsBlocked = app != null &&
+            (invalidPackage || CommandPolicy.isProtected(app.packageName, app.uid))
         val whitelisted = pkg != null && inputs.dozeUserWhitelist?.contains(pkg) == true
         val appFixes = if (whitelisted) {
             listOf(ActionType.REMOVE_DOZE_WHITELIST, ActionType.OPEN_APP_SETTINGS)
@@ -39,6 +43,8 @@ object Recommender {
         }.map { it.type }.toSet()
         return finding.copy(recommendations = actions.filterNot { action ->
             action in applied || (action == ActionType.ENABLE_HIGH_BATTERY_ALERT && inputs.highBatteryAlertEnabled) ||
+                (privilegedAppActionsBlocked && action in privilegedActions) ||
+                (invalidPackage && action == ActionType.OPEN_APP_SETTINGS) ||
                 (sdkInt < 28 &&
                     (action == ActionType.RESTRICT_BACKGROUND || action == ActionType.STANDBY_BUCKET_RESTRICTED ||
                         action == ActionType.STANDBY_BUCKET_RARE))
