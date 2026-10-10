@@ -2,6 +2,7 @@ package com.akane.voltwise.viewmodel
 
 import com.akane.voltwise.battery.data.db.InsightActionEntity
 import com.akane.voltwise.battery.data.db.InsightActionStatus
+import com.akane.voltwise.battery.data.db.MESSAGE_CHANGED_EXTERNALLY
 import com.akane.voltwise.battery.data.db.SessionDao
 import com.akane.voltwise.battery.insights.InsightInputsBuilder
 import com.akane.voltwise.battery.insights.InsightRepository
@@ -109,7 +110,7 @@ internal fun actionStates(
         row.status, row.appliedAt, row.undoable(),
         findings.firstOrNull { it.type == FindingType.ACTION_EFFECT && it.key.endsWith(":${row.id}") &&
             (it.subject as? Subject.App)?.packageName == row.packageName },
-        changedExternally = row.status == InsightActionStatus.REVERTED && row.message == "CHANGED_EXTERNALLY",
+        changedExternally = row.status == InsightActionStatus.REVERTED && row.message == MESSAGE_CHANGED_EXTERNALLY,
         targetState = row.targetState,
     )
 }.insightSnapshot()

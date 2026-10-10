@@ -64,6 +64,8 @@ data class InsightFindingEntity(
     val evidenceJson: String,
 )
 
+const val MESSAGE_CHANGED_EXTERNALLY = "CHANGED_EXTERNALLY"
+
 /**
  * Undo authority, deliberately independent of findings and history (no foreign key or history cascade).
  * Type is a stable action name interpreted by the action repository; unknown names are preserved.
