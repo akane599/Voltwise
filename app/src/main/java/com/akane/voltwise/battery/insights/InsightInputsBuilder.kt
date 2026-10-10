@@ -86,9 +86,15 @@ object InsightInputsBuilder {
             },
             dozeWhitelist,
             actions.mapNotNull {
-                if (it.appliedAt == null || it.status !in appliedStatuses) return@mapNotNull null
+                if (it.appliedAt == null) return@mapNotNull null
                 val type = enumName<ActionType>(it.type) ?: return@mapNotNull null
-                val status = enumName<ActionStatus>(it.status.name) ?: return@mapNotNull null
+                val status = when (it.status) {
+                    InsightActionStatus.APPLIED -> ActionStatus.APPLIED
+                    InsightActionStatus.REVERTED -> ActionStatus.REVERTED
+                    InsightActionStatus.ONE_SHOT -> ActionStatus.ONE_SHOT
+                    // These lifecycle states do not prove application and cannot feed action effects.
+                    InsightActionStatus.PREPARED, InsightActionStatus.FAILED, InsightActionStatus.UNKNOWN -> return@mapNotNull null
+                }
                 val metric = if (it.metric != null) enumName<Metric>(it.metric) else
                     findingsByKey[it.findingKey]?.let(FindingCodec::decode)?.evidence?.firstOrNull()?.metric
                 AppliedActionInput(it.id, it.findingKey, type, it.packageName, it.uid, it.appliedAt, status, metric)
@@ -97,8 +103,6 @@ object InsightInputsBuilder {
             zone = zone,
         )
     }
-
-    private val appliedStatuses = setOf(InsightActionStatus.APPLIED, InsightActionStatus.REVERTED, InsightActionStatus.ONE_SHOT)
 }
 
 internal inline fun <reified T : Enum<T>> enumName(name: String?): T? = enumValues<T>().firstOrNull { it.name == name }

@@ -85,6 +85,27 @@ class InsightInputsBuilderTest {
         }
     }
 
+    @Test fun everyJournalStatusMapsOrIsIntentionallyExcludedFromActionEffects() {
+        val expected = mapOf(
+            InsightActionStatus.APPLIED to ActionStatus.APPLIED,
+            InsightActionStatus.REVERTED to ActionStatus.REVERTED,
+            InsightActionStatus.ONE_SHOT to ActionStatus.ONE_SHOT,
+        )
+        // These lifecycle states do not prove an applied action, even with an appliedAt stamp.
+        val excluded = setOf(InsightActionStatus.PREPARED, InsightActionStatus.FAILED, InsightActionStatus.UNKNOWN)
+        assertEquals(InsightActionStatus.entries.toSet(), expected.keys + excluded)
+        assertTrue(expected.keys.intersect(excluded).isEmpty())
+        for (status in InsightActionStatus.entries) {
+            val row = InsightActionEntity(
+                findingKey = "action", type = ActionType.RESTRICT_BACKGROUND.name, userId = 0,
+                status = status, priorStateVersion = 1, createdAt = 1, appliedAt = 2,
+            )
+            val mapped = build(actions = listOf(row)).actions
+            assertEquals("journal status $status", expected[status]?.let(::listOf).orEmpty(), mapped.map { it.status })
+            assertTrue("missing application time must exclude $status", build(actions = listOf(row.copy(appliedAt = null))).actions.isEmpty())
+        }
+    }
+
     @Test fun appliedActionKeepsMetricWhenStoredFindingChangesLeadEvidence() {
         val finding = testFinding("JOB_STORM:example.app0").copy(
             type = FindingType.JOB_STORM,

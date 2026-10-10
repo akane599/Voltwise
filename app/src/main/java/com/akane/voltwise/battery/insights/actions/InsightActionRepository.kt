@@ -5,6 +5,7 @@ import com.akane.voltwise.battery.data.db.InsightActionEntity
 import com.akane.voltwise.battery.data.db.InsightActionStatus
 import com.akane.voltwise.battery.data.db.InsightActionStatus.*
 import com.akane.voltwise.battery.data.db.InsightDao
+import com.akane.voltwise.battery.data.db.MESSAGE_CHANGED_EXTERNALLY
 import com.akane.voltwise.battery.insights.model.*
 import com.akane.voltwise.battery.util.ExecutionCertainty
 import com.akane.voltwise.battery.util.ShellRunner.Outcome
@@ -76,11 +77,11 @@ class InsightActionRepository(
             for (old in dao.actionsWithStatus(listOf(APPLIED, PREPARED, UNKNOWN))) {
                 if (old.type != rec.action.name || old.packageName != app.packageName) continue
                 if (old.uid != app.uid) {
-                    dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = "CHANGED_EXTERNALLY"))
+                    dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = MESSAGE_CHANGED_EXTERNALLY))
                     continue
                 }
                 if (old.status == APPLIED && old.targetState != prior.value) {
-                    dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = "CHANGED_EXTERNALLY"))
+                    dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = MESSAGE_CHANGED_EXTERNALLY))
                 } else if (old.status in listOf(PREPARED, UNKNOWN) && old.priorState == prior.value) {
                     if (old.appliedAt != null) {
                         dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = null))
@@ -89,7 +90,7 @@ class InsightActionRepository(
                     }
                 } else if (old.status in listOf(PREPARED, UNKNOWN) && old.targetState != prior.value && canWrite) {
                     // A third live state is the new prior; the old row cannot own a later matching target.
-                    dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = "CHANGED_EXTERNALLY"))
+                    dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = MESSAGE_CHANGED_EXTERNALLY))
                 }
             }
             if (!operation.restorable(prior.value, inspector.sdkInt)) {
@@ -133,7 +134,7 @@ class InsightActionRepository(
         val uid = row.uid ?: return@withLock ActionResult.Failed(FailureCode.INVALID_JOURNAL)
         val refusal = validate(pkg, uid, restoring = true)
         if (refusal == RefusalCode.NOT_INSTALLED || refusal == RefusalCode.UID_MISMATCH) {
-            dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = "CHANGED_EXTERNALLY"))
+            dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = MESSAGE_CHANGED_EXTERNALLY))
             return@withLock ActionResult.ChangedExternally(null)
         }
         if (refusal != null) return@withLock ActionResult.Refused(refusal)
@@ -148,7 +149,7 @@ class InsightActionRepository(
             return@withLock ActionResult.Failed(FailureCode.NOT_APPLIED)
         }
         if (current.value != row.targetState) {
-            dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = "CHANGED_EXTERNALLY"))
+            dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = MESSAGE_CHANGED_EXTERNALLY))
             return@withLock ActionResult.ChangedExternally(current.value)
         }
         // The target read proves application; preserve it if restoration is interrupted.
@@ -187,7 +188,7 @@ class InsightActionRepository(
             }
             val refusal = validate(pkg, uid, restoring = true)
             if (refusal == RefusalCode.NOT_INSTALLED || refusal == RefusalCode.UID_MISMATCH) {
-                dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = "CHANGED_EXTERNALLY"))
+                dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = MESSAGE_CHANGED_EXTERNALLY))
                 continue
             }
             if (refusal != null) {

@@ -5,6 +5,7 @@ import com.akane.voltwise.battery.data.db.ChargeSession
 import com.akane.voltwise.battery.data.db.InsightActionEntity
 import com.akane.voltwise.battery.data.db.InsightActionStatus
 import com.akane.voltwise.battery.data.db.InsightFindingEntity
+import com.akane.voltwise.battery.data.db.MESSAGE_CHANGED_EXTERNALLY
 import com.akane.voltwise.battery.data.db.SessionType
 import com.akane.voltwise.battery.data.sampling.FakeKeyValueStore
 import com.akane.voltwise.battery.insights.InsightRepository
@@ -40,6 +41,22 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DefaultInsightsRepositoryTest {
+    @Test fun revertedActionWithSharedMessageShowsChangedExternally() {
+        assertEquals("CHANGED_EXTERNALLY", MESSAGE_CHANGED_EXTERNALLY)
+        val row = insightAction(status = InsightActionStatus.REVERTED).copy(message = MESSAGE_CHANGED_EXTERNALLY)
+        val history = actionStates(listOf(row), emptyList()).single()
+        assertTrue("reverted external change must retain its label", history.changedExternally)
+        assertFalse(history.undoable)
+        for (status in InsightActionStatus.entries.filter { it != InsightActionStatus.REVERTED }) {
+            assertFalse("external-change label requires REVERTED, not $status",
+                actionStates(listOf(row.copy(status = status)), emptyList()).single().changedExternally)
+        }
+        for (message in listOf(null, "STATE_MISMATCH")) {
+            assertFalse("ordinary reverted action must not get an external-change label",
+                actionStates(listOf(row.copy(message = message)), emptyList()).single().changedExternally)
+        }
+    }
+
     @Test fun actionHistoryPreservesActualJournalTargetWithoutChangingRequestedType() {
         for (target in listOf("RARE", "RESTRICTED", "FUTURE_BUCKET", null)) {
             val row = insightAction().copy(type = ActionType.STANDBY_BUCKET_RESTRICTED.name, targetState = target)
