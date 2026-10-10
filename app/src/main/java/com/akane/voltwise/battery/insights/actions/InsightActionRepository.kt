@@ -126,7 +126,7 @@ class InsightActionRepository(
     suspend fun undo(actionId: Long): ActionResult = mutex.withLock {
         val row = dao.actionsOnce().firstOrNull { it.id == actionId }
             ?: return@withLock ActionResult.Failed(FailureCode.NOT_UNDOABLE)
-        if (row.type == ActionType.FORCE_STOP.name || row.status !in listOf(APPLIED, UNKNOWN)) {
+        if (row.type == ActionType.FORCE_STOP.name || row.status !in listOf(APPLIED, PREPARED, UNKNOWN)) {
             return@withLock ActionResult.Failed(FailureCode.NOT_UNDOABLE)
         }
         val operation = journalOperation(row) ?: return@withLock ActionResult.Failed(FailureCode.INVALID_JOURNAL)
@@ -140,7 +140,7 @@ class InsightActionRepository(
         if (refusal != null) return@withLock ActionResult.Refused(refusal)
         val current = read(operation, pkg)
         if (current !is StateRead.Known) return@withLock initialReadFailure(current)
-        if (row.status == UNKNOWN && current.value == row.priorState) {
+        if (row.status in listOf(PREPARED, UNKNOWN) && current.value == row.priorState) {
             if (row.appliedAt != null) {
                 dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = null))
                 return@withLock ActionResult.Reverted

@@ -245,7 +245,7 @@ class DefaultInsightsRepositoryTest {
             type = FindingType.DOZE_WHITELISTED_DRAINER,
             recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
         )
-        for (status in listOf(InsightActionStatus.APPLIED, InsightActionStatus.UNKNOWN)) {
+        for (status in listOf(InsightActionStatus.APPLIED, InsightActionStatus.PREPARED, InsightActionStatus.UNKNOWN)) {
             val row = insightAction(status = status).copy(
                 type = ActionType.REMOVE_DOZE_WHITELIST.name,
                 priorState = "PRESENT",
@@ -268,7 +268,7 @@ class DefaultInsightsRepositoryTest {
                 type = type,
                 recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
             )
-            for (status in listOf(InsightActionStatus.APPLIED, InsightActionStatus.UNKNOWN)) {
+            for (status in listOf(InsightActionStatus.APPLIED, InsightActionStatus.PREPARED, InsightActionStatus.UNKNOWN)) {
                 for (timestamp in listOf(9L, 10L, 11L)) {
                     for (appliedAt in listOf(timestamp, null)) {
                         val row = insightAction(status = status).copy(

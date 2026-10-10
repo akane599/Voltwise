@@ -7,6 +7,7 @@ import com.akane.voltwise.battery.insights.UnusedInsightDao
 import com.akane.voltwise.battery.insights.model.*
 import com.akane.voltwise.battery.util.ExecutionCertainty
 import com.akane.voltwise.battery.util.ShellRunner
+import com.akane.voltwise.viewmodel.undoable
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -115,6 +116,73 @@ class InsightActionRepositoryTest {
         assertEquals(PrivilegedCommand.SetBackgroundOp(pkg, BackgroundOp.RUN_ANY_IN_BACKGROUND, AppOpMode.ALLOW), f.commands[4])
         assertEquals(REVERTED, f.row().status)
         assertNotNull(f.row().revertedAt)
+    }
+
+    @Test fun appliedSettlementFailureLeavesPreparedUndoableAndRestoresPriorState() = runTest {
+        for ((type, prior, target) in listOf(
+            Triple(ActionType.RESTRICT_BACKGROUND, "No operations.", "RUN_ANY_IN_BACKGROUND: ignore"),
+            Triple(ActionType.STANDBY_BUCKET_RARE, "working_set", "rare"),
+            Triple(ActionType.STANDBY_BUCKET_RESTRICTED, "working_set", "restricted"),
+            Triple(ActionType.REMOVE_DOZE_WHITELIST, "system,android,1000\nuser,$pkg,$uid", "system,android,1000"),
+        )) {
+            val f = Fixture()
+            f.reply(prior, "", target)
+            f.dao.beforeUpdate = { throw IllegalStateException("journal unavailable after confirmed write") }
+            try { f.apply(type); fail("APPLIED update failure required") } catch (_: IllegalStateException) { }
+
+            val prepared = f.row()
+            assertEquals(PREPARED, prepared.status)
+            assertNull(prepared.appliedAt)
+            assertEquals(3, f.commands.size)
+            assertTrue("confirmed readback must have completed", f.replies.isEmpty())
+            assertTrue("PREPARED $type must be undoable after APPLIED settlement fails", prepared.undoable())
+
+            f.dao.beforeUpdate = {}
+            f.reply(target, "", prior)
+            assertEquals(ActionResult.Reverted, f.repo.undo(prepared.id))
+            val restore = when (type) {
+                ActionType.RESTRICT_BACKGROUND -> PrivilegedCommand.SetBackgroundOp(pkg, BackgroundOp.RUN_ANY_IN_BACKGROUND, AppOpMode.ALLOW)
+                ActionType.REMOVE_DOZE_WHITELIST -> PrivilegedCommand.AddDozeWhitelist(pkg)
+                else -> PrivilegedCommand.SetStandbyBucket(pkg, StandbyBucket.WORKING_SET)
+            }
+            assertEquals("Undo must restore the exact prior for $type", restore, f.commands[4])
+            assertEquals(REVERTED, f.row().status)
+            assertEquals(prepared.createdAt, f.row().appliedAt)
+            assertNotNull(f.row().revertedAt)
+            assertFalse(f.row().undoable())
+        }
+    }
+
+    @Test fun preparedForceStopRemainsNotUndoableWithoutCommands() = runTest {
+        val f = Fixture()
+        val id = f.dao.insertAction(InsightActionEntity(
+            findingKey = "finding", type = ActionType.FORCE_STOP.name,
+            packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+            priorStateVersion = 1, createdAt = 1,
+        ))
+        val prepared = f.row()
+        assertFalse("PREPARED FORCE_STOP must never gain Undo", prepared.undoable())
+        assertEquals(ActionResult.Failed(FailureCode.NOT_UNDOABLE), f.repo.undo(id))
+        assertEquals(prepared, f.row())
+        assertTrue(f.commands.isEmpty())
+    }
+
+    @Test fun preparedUndoAtPriorSettlesWithoutRestoration() = runTest {
+        for (appliedAt in listOf(null, 1L)) {
+            val f = Fixture()
+            val id = f.dao.insertAction(InsightActionEntity(
+                findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+                packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+                priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE",
+                createdAt = 1, appliedAt = appliedAt,
+            ))
+            f.reply("active")
+            assertEquals(if (appliedAt == null) ActionResult.Failed(FailureCode.NOT_APPLIED) else ActionResult.Reverted, f.repo.undo(id))
+            assertEquals(if (appliedAt == null) FAILED else REVERTED, f.row().status)
+            assertEquals(if (appliedAt == null) FailureCode.STATE_MISMATCH.name else null, f.row().message)
+            assertEquals(listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+            assertFalse(f.row().undoable())
+        }
     }
 
     @Test fun bucketsRoundTripAndRestrictedFallback() = runTest {
