@@ -15,5 +15,7 @@ priority: 15
 - Theme/token tickets land before screen tickets (link `depends-on`); two tickets never share a screen or theme file.
 - Tickets that need a device say so in the description; everything else must verify on the JVM (unit, Robolectric, screenshot tests).
 - Decisions worth keeping (why X over Y) go to PROGRESS.md's decision log when a story is integrated.
+- Before filing, grep the definition of every function the ticket names. Declare that file and the tests that pin it: the board refuses mid-run scope requests. SQ-375 was handed back because `undoable()` lives in `viewmodel/InsightsRepository.kt`.
+- A ticket that deletes or renames a DAO query also updates `scripts/check_history_queries.py`, and its verify runs `python3 -I -B scripts/check_history_queries.py`. Otherwise the merged-tree gate fails (SQ-368).
 
 - Authentication, SDK/JDK, network and missing-tool failures are environment blockers, not model-quality failures; fix/report them before spending escalation attempts. Change approach between attempts and carry evidence forward. A gateway error after dispatch is not guaranteed to trigger a Claude fallback.

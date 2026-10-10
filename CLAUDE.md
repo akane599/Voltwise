@@ -14,7 +14,7 @@ Android, developed on Ubuntu from the CLI.
 - DI/DB/Net: Koin / Room / none · Async: coroutines/Flow · Navigation: Navigation 3 · Firebase: no · Version catalog: yes
 - App id: com.akane.voltwise (debug .debug, preview .preview; was org.mlm.batstats before 2026-10-08) · namespace: com.akane.voltwise (was app.batstats) · Launcher: com.akane.voltwise.battery.BatteryMainActivity
 - Tests: JUnit4 + kotlinx-coroutines-test; androidTest present, no Espresso · Lint: Android lint; no detekt/ktlint/spotless
-- Baseline: full gate green on feat/insights @ 6d81b43 (2026-10-10): unit 1795/0 fail, androidTest compile, assembleDebug, 274 screenshots/0 fail, migrations; assemblePreview last OK @ 257ddc4
+- Baseline: full gate green on feat/insights @ 78dd4b1 (2026-10-11): unit 1944 (45 skipped)/0 fail, androidTest compile, assembleDebug, lint, 274 screenshots/0 fail, migrations; assemblePreview last OK @ 257ddc4
 <!-- STACK:END -->
 
 ## How work flows here
@@ -26,6 +26,7 @@ Android, developed on Ubuntu from the CLI.
 - **End of a session or story:** `/wrap-up` turns corrections and decisions into rules, CLAUDE.md lines and the decision log (you approve each). Personal preferences go to auto memory ("remember that …").
 - **Conventions** live in `.claude/live-rules/rules/` and are injected into every session and executor, so they're not repeated here. **Project map:** `.claude/.codebase-info/` (codebase-mapper).
 - **Board:** "show the Sidequest board"; side issues mentioned mid-task get filed, not worked.
+- Sidequest board `integrationBranch` must match the current work branch (feat/insights; change it via `board_config`). A stale `feat/overhaul` value pinned executors to the wrong base.
 - **Plugin health / updates:** `/quartermaster:toolshed-doctor`, `/quartermaster:update-toolshed`. After a few weeks of real work: `/quartermaster:resupply`.
 - **Compaction:** your last instructions are saved before compaction and re-injected after; re-read them before acting.
 
