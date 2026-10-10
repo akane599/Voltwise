@@ -52,7 +52,7 @@ class ShizukuBridge(private val context: Context) {
 
         const val PERMISSION_REQUEST_CODE = 1001
 
-        private const val SERVICE_VERSION = 9
+        private const val SERVICE_VERSION = 10
 
         private const val BIND_TIMEOUT_MS = 10_000L
         private const val DEFAULT_CMD_TIMEOUT_MS = 25_000L
