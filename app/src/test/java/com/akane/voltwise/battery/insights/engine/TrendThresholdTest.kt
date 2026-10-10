@@ -134,7 +134,7 @@ class TrendThresholdTest {
         val zone = ZoneId.of("Asia/Tokyo")
         val input = InsightInputsBuilder.build(
             nowMs = localMidnight(today, zone) + 12 * HOUR, todayEpochDay = today,
-            fullUah = null, privileged = false, sessions = emptyList(), days = emptyList(),
+            fullUah = null, sessions = emptyList(), days = emptyList(),
             appRows = emptyList(), wakers = emptyList(), capacity = emptyList(), dozeWhitelist = null,
             actions = emptyList(), findings = emptyList(), zone = zone,
         )

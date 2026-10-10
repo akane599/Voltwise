@@ -77,7 +77,7 @@ class InsightsViewModelTest {
                 override suspend fun sessionWakers(sessionIds: List<String>) = emptyList<SessionDeviceWaker>()
             },
             dao, backgroundScope, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC),
-            { null }, { true }, FakeKeyValueStore(),
+            { null }, FakeKeyValueStore(),
             maintenance = HistoryMaintenance(),
             ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
             analyze = { InsightReport(it.nowMs, listOf(insightFinding()), insightFinding()) },
@@ -149,7 +149,7 @@ class InsightsViewModelTest {
                 override suspend fun usageRowsForSessions(sessionIds: List<String>) = emptyList<SessionAppUsage>()
                 override suspend fun sessionWakers(sessionIds: List<String>) = emptyList<SessionDeviceWaker>()
             },
-            dao, backgroundScope, clock, { null }, { false },
+            dao, backgroundScope, clock, { null },
             FakeKeyValueStore(), maintenance = HistoryMaintenance(), ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
             analyze = {
                 if (failAnalysis) error("analysis failed")

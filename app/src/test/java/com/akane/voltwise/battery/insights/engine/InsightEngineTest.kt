@@ -17,7 +17,7 @@ import org.junit.Test
 
 class InsightEngineTest {
     @Test fun `recommendations cover every finding type and preserve manual privileged paths`() {
-        val input = inputs(emptyList(), emptyList()).copy(privileged = false)
+        val input = inputs(emptyList(), emptyList())
         val base = listOf(ActionType.RESTRICT_BACKGROUND, ActionType.STANDBY_BUCKET_RESTRICTED, ActionType.OPEN_APP_SETTINGS)
         for (type in FindingType.entries) {
             val expected = when (type) {
@@ -37,7 +37,6 @@ class InsightEngineTest {
                 assertEquals(rec.action in setOf(ActionType.RESTRICT_BACKGROUND, ActionType.STANDBY_BUCKET_RESTRICTED,
                     ActionType.REMOVE_DOZE_WHITELIST, ActionType.FORCE_STOP), rec.requiresPrivilege)
             }
-            assertEquals(result, Recommender.recommend(candidate, input.copy(privileged = true), sdkInt = 37))
         }
     }
 
@@ -100,10 +99,7 @@ class InsightEngineTest {
                     it.action == ActionType.RESTRICT_BACKGROUND || it.action == ActionType.STANDBY_BUCKET_RESTRICTED ||
                         it.action == ActionType.STANDBY_BUCKET_RARE
                 }
-                for (privileged in listOf(false, true)) {
-                    assertEquals("$type API $sdk privileged=$privileged", expected,
-                        Recommender.recommend(candidate, input.copy(privileged = privileged), sdk).recommendations)
-                }
+                assertEquals("$type API $sdk", expected, Recommender.recommend(candidate, input, sdk).recommendations)
             }
         }
         val candidate = finding(FindingType.APP_DRAIN_ANOMALY, emptyList(), Subject.App(UID, APP))

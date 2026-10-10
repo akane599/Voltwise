@@ -297,8 +297,7 @@ class StructuredStatsInsightsPipelineTest {
         runCurrent()
         val now = EPOCH + testScheduler.currentTime + 1
         val inputs = InsightInputsBuilder.build(
-            nowMs = now, todayEpochDay = now / 86_400_000L, fullUah = 3_000_000, privileged = true,
-            sessions = store.sessions.values.toList(), days = emptyList(), appRows = store.rows,
+            nowMs = now, todayEpochDay = now / 86_400_000L, fullUah = 3_000_000, sessions = store.sessions.values.toList(), days = emptyList(), appRows = store.rows,
             wakers = emptyList(), capacity = emptyList(), dozeWhitelist = emptySet(), actions = emptyList(), findings = emptyList(),
         )
         return Pipeline(store, inputs, captures)

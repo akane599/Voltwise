@@ -55,7 +55,7 @@ class DefaultInsightsRepository(
     }
     override val eligibleSessionCount = sessionDao.filteredSessions(null, "", Int.MAX_VALUE).map { sessions ->
         val inputs = InsightInputsBuilder.build(
-            clock(), 0, null, false, sessions, emptyList(), emptyList(), emptyList(), emptyList(),
+            clock(), 0, null, sessions, emptyList(), emptyList(), emptyList(), emptyList(),
             null, emptyList(), emptyList(),
         )
         AppWindows.select(inputs).size

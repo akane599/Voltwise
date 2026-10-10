@@ -195,7 +195,7 @@ class AppDetectorTest(private val type: FindingType) {
         org.junit.Assume.assumeTrue(type == FindingType.JOB_STORM)
         val sessions = (0..9).map { index ->
             session(index).let {
-                if (index in 4..8) it.copy(appWindow = it.appWindow!!.copy(rowsStored = 30, fullRowSet = true)) else it
+                if (index in 4..8) it.copy(appWindow = it.appWindow!!.copy(fullRowSet = true)) else it
             }
         }
         val rows = sessions.flatMapIndexed { index, session ->

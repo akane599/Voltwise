@@ -120,7 +120,7 @@ class InsightRepositoryTest {
             }
         }
         fun repository(scope: TestScope) = InsightRepository(sessionDao, daily, apps, insights, scope.backgroundScope,
-            clock, { events += "whitelist"; whitelist }, { true }, store,
+            clock, { events += "whitelist"; whitelist }, store,
             maintenance = maintenance,
             capacityReading = { 2_000_000L to 50 },
             highBatteryAlertEnabled = { highBatteryAlertEnabled },
@@ -895,7 +895,7 @@ class InsightRepositoryTest {
         ) }
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repo = InsightRepository(fixture.sessionDao, fixture.daily, fixture.apps, fixture.insights,
-            backgroundScope, fixture.clock, { emptySet() }, { false }, fixture.store,
+            backgroundScope, fixture.clock, { emptySet() }, fixture.store,
             maintenance = fixture.maintenance,
             ioDispatcher = dispatcher, analyzeDispatcher = dispatcher)
         repo.refresh()

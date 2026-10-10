@@ -76,8 +76,7 @@ class TrendsTest {
             ), ZoneOffset.UTC, updatedAt = 1).single()
         }
         val input = InsightInputsBuilder.build(
-            nowMs = 100 * 24 * HOUR, todayEpochDay = 100, fullUah = 4_000_000, privileged = false,
-            sessions = emptyList(), days = summaries, appRows = emptyList(), wakers = emptyList(),
+            nowMs = 100 * 24 * HOUR, todayEpochDay = 100, fullUah = 4_000_000, sessions = emptyList(), days = summaries, appRows = emptyList(), wakers = emptyList(),
             capacity = emptyList(), dozeWhitelist = null, actions = emptyList(), findings = emptyList(),
         )
         assertTrue("Unknown historical shares cannot count as four measured after-days", Trends.detect(input).isEmpty())

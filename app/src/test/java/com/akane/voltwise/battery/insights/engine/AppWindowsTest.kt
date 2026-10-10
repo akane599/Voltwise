@@ -258,7 +258,7 @@ class AppWindowsTest {
 
     private fun truncatedWindow(wakerCount: Int = 2): EligibleAppWindow {
         val session = session(0, 2 * HOUR).let {
-            it.copy(appWindow = it.appWindow!!.copy(rowsStored = 30 + wakerCount, fullRowSet = true))
+            it.copy(appWindow = it.appWindow!!.copy(fullRowSet = true))
         }
         val leaders = (0 until 30).map { rank ->
             row(session.id).copy(uid = 20_000 + rank, packageName = "example.leader$rank", rank = rank,

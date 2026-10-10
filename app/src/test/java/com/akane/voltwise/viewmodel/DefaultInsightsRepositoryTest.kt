@@ -425,8 +425,7 @@ class DefaultInsightsRepositoryTest {
                 override suspend fun sessionWakers(sessionIds: List<String>) = emptyList<com.akane.voltwise.battery.data.db.SessionDeviceWaker>()
             }, dao, scope.backgroundScope,
             Clock.fixed(java.time.Instant.ofEpochMilli(com.akane.voltwise.battery.insights.NOW), java.time.ZoneOffset.UTC),
-            { shell.detectMode(); setOf("com.example.app") },
-            { shell.access.value == ShellRunner.Mode.SHIZUKU }, FakeKeyValueStore(),
+            { shell.detectMode(); setOf("com.example.app") }, FakeKeyValueStore(),
             maintenance = HistoryMaintenance(), capacityReading = { 2_000_000L to 50 },
             ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
             highBatteryAlertEnabled = { true },
@@ -453,7 +452,7 @@ class DefaultInsightsRepositoryTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val insights = InsightRepository(
             sessions, UnusedDailySummaryDao(), UnusedAppUsageDao(), dao,
-            backgroundScope, Clock.systemUTC(), { null }, { false }, FakeKeyValueStore(),
+            backgroundScope, Clock.systemUTC(), { null }, FakeKeyValueStore(),
             maintenance = HistoryMaintenance(), ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
         )
         val actions = InsightActionRepository(dao, { error("observation must not execute") }, object : TargetInspector {

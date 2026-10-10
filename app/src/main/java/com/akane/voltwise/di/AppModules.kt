@@ -194,7 +194,6 @@ val appModule = module {
             get(), Clock.systemDefaultZone(),
             currentZone = ZoneId::systemDefault,
             dozeWhitelist = { readUserDozeWhitelist(shell) },
-            privileged = { shell.access.value == ShellRunner.Mode.SHIZUKU || shell.access.value == ShellRunner.Mode.ROOT },
             store = SharedPreferencesStore(preferences),
             maintenance = get(),
             capacityReading = {
