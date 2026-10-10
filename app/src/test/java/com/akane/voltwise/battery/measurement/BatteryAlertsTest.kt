@@ -139,6 +139,14 @@ class BatteryAlertsTest {
         val restored = BatteryAlerts(first.latches, first.lastAcceptedElapsedMs)
         assertTrue(restored.accept(reading(930_000, 15), defaults).isEmpty())
     }
+    @Test fun refreshedLatchSurvivesRestartAfterRefreshIntervalAndOneFastCapture() {
+        val savedElapsedMs = 600_000L
+        val restored = BatteryAlerts(setOf(BatteryAlert.LOW), initialElapsedMs = savedElapsedMs)
+        assertTrue("A throttled timestamp must still suppress the LOW alert after a quick restart",
+            restored.accept(reading(savedElapsedMs + ALERT_REFRESH_MS + 2_000, 15)
+                .copy(samplingIntervalMs = 2_000), defaults).isEmpty())
+        assertEquals(setOf(BatteryAlert.LOW), restored.latches)
+    }
     @Test fun restoredEpisodesUseTheSameClampedSamplingGapRule() {
         for (interval in listOf(1_000L, 5_000L, 300_000L, 600_000L)) {
             val gapLimit = interval.coerceIn(5_000, 300_000) * 3 + 10_000
