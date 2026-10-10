@@ -220,12 +220,6 @@ val AppSettings.useFahrenheit: Boolean get() = temperatureUnitIndex == 1
 
 /** The "Forever" option of [AppSettings.dataRetentionIndex]. */
 const val RETENTION_FOREVER_INDEX = 5
-private val RETENTION_DAYS = listOf(7L, 30L, 90L, 180L, 365L)
-
-/** Display/model fallback: unknown indices use 90 days; HistoryRetention pauses deletion for them. */
-val AppSettings.retentionDays: Long?
-    get() = if (dataRetentionIndex == RETENTION_FOREVER_INDEX) null else RETENTION_DAYS.getOrElse(dataRetentionIndex) { 90L }
-
 @CategoryDefinition(order = 0)
 object General
 

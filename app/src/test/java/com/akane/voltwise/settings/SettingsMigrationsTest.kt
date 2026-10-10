@@ -62,7 +62,7 @@ class SettingsMigrationsTest {
         assertTrue(migrate(store) is MigrationResult.Success)
         val settings = SettingsRepository(store, AppSettingsSchema).flow.first()
         assertEquals(RETENTION_FOREVER_INDEX, settings.dataRetentionIndex)
-        assertNull(settings.retentionDays)
+        assertEquals(Retention.Forever, resolveRetention(store.data.first()))
         assertTrue("Material You is a user choice here, not the v1 default", settings.dynamicColors)
         assertEquals(15, settings.lowBatteryThreshold)
         assertEquals(emptySet<String>(), storedKeys(store) intersect SettingsMigrations.V3_REMOVED_KEYS)
@@ -99,7 +99,7 @@ class SettingsMigrationsTest {
         assertTrue(migrate(store) is MigrationResult.Success)
         val settings = SettingsRepository(store, AppSettingsSchema).flow.first()
         assertEquals(1, settings.dataRetentionIndex)
-        assertEquals(30L, settings.retentionDays)
+        assertEquals(Retention.Days(30), resolveRetention(store.data.first()))
         assertFalse("auto_cleanup_enabled" in storedKeys(store))
     }
 

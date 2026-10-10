@@ -144,6 +144,28 @@ class HistoryRetentionTest {
             retention.cutoff(now + 120_000, 121_000))
     }
 
+    @Test fun invalidRetentionAgreesAcrossMigrationCleanupAndSettings() = runBlocking {
+        val store = store()
+        val key = intPreferencesKey("data_retention_index")
+        store.edit {
+            it[intPreferencesKey(SettingsMigrations.VERSION_KEY)] = 2
+            it[key] = 99
+        }
+        val field = AppSettingsSchema.fields.first { it.name == "dataRetentionIndex" }
+        assertEquals("The schema decoder accepts a stale out-of-range integer", 99, field.decodeValue("i:99"))
+        val migrator = SettingsMigrator(store)
+        assertTrue(migrator.run() is MigrationResult.Success)
+        assertEquals("Migration must not authorize a default for an invalid choice", 99, store.data.first()[key])
+        val settings = com.akane.voltwise.viewmodel.KmpSettingsStore(store)
+        assertEquals("The DataStore schema reader passes the invalid index through", 99, settings.settings.first().dataRetentionIndex)
+        assertNull("An invalid choice pauses age cleanup", retention(migrator, store).cutoff(now, 1_000, now))
+        assertTrue("Settings must show not set whenever the invalid choice pauses cleanup", settings.retentionUnset.first())
+        settings.set("dataRetentionIndex", 1)
+        assertFalse("An explicit valid choice ends the not-set state", settings.retentionUnset.first())
+        assertEquals("The same choice resumes cleanup", now - 30 * 86_400_000L,
+            retention(migrator, store).cutoff(now, 1_000, now))
+    }
+
     @Test fun v3MissingRetentionStillUsesNinetyDays() = runBlocking {
         val store = store()
         store.edit { it[intPreferencesKey(SettingsMigrations.VERSION_KEY)] = 3 }

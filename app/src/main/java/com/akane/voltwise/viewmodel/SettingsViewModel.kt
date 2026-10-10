@@ -3,15 +3,15 @@ package com.akane.voltwise.viewmodel
 import androidx.compose.runtime.Immutable
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akane.voltwise.battery.data.CalibrationStore
 import com.akane.voltwise.battery.measurement.CalibrationState
 import com.akane.voltwise.settings.AppSettings
 import com.akane.voltwise.settings.AppSettingsSchema
-import com.akane.voltwise.settings.SETTINGS_RECOVERED
+import com.akane.voltwise.settings.Retention
 import com.akane.voltwise.settings.SettingsWrites
+import com.akane.voltwise.settings.resolveRetention
 import io.github.mlmgames.settings.core.SettingMeta
 import io.github.mlmgames.settings.core.SettingsRepository
 import kotlin.math.roundToInt
@@ -31,8 +31,8 @@ interface SettingsStore {
     val settings: Flow<AppSettings>
 
     /**
-     * True while no history retention has been chosen since settings recovered from corruption: [settings] then
-     * decodes the default period, but age cleanup stays paused (HistoryRetention) until a period is picked.
+     * True while the raw history retention is invalid or absent after settings recovery; age cleanup
+     * stays paused (HistoryRetention) until a valid period is picked.
      */
     val retentionUnset: Flow<Boolean>
 
@@ -51,13 +51,9 @@ class KmpSettingsStore(private val dataStore: DataStore<Preferences>) : Settings
     override val settings: Flow<AppSettings> get() = repository.flow
 
     override val retentionUnset: Flow<Boolean> =
-        dataStore.data.map { it[RETENTION_INDEX] == null && it[SETTINGS_RECOVERED] == true }.distinctUntilChanged()
+        dataStore.data.map { resolveRetention(it) == Retention.Unset }.distinctUntilChanged()
 
     override suspend fun set(fieldName: String, value: Any) = repository.set(fieldName, value)
-
-    private companion object {
-        val RETENTION_INDEX = intPreferencesKey("data_retention_index")
-    }
 }
 
 private fun schemaMeta(field: String): SettingMeta =
