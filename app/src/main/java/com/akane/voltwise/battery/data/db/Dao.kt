@@ -279,9 +279,6 @@ interface AppUsageDao {
     @Query("SELECT * FROM session_app_usage WHERE sessionId = :sessionId ORDER BY rank")
     fun sessionUsage(sessionId: String): Flow<List<SessionAppUsage>>
 
-    @Query("SELECT * FROM session_app_usage WHERE sessionId = :sessionId ORDER BY rank")
-    suspend fun sessionUsageRows(sessionId: String): List<SessionAppUsage>
-
     /** Same session predicate as [SessionDao.sessionsBetween], for export. */
     @Query("SELECT u.* FROM session_app_usage u JOIN charge_sessions s ON s.sessionId = u.sessionId WHERE s.startTime <= :to AND COALESCE(s.endTime, s.lastSampleTime, s.startTime) >= :from ORDER BY s.startTime, u.sessionId, u.rank")
     suspend fun usageForSessionsBetween(from: Long, to: Long): List<SessionAppUsage>
@@ -330,9 +327,6 @@ interface InsightDao {
 
     @Query("UPDATE insight_findings SET status = :status WHERE `key` = :key")
     suspend fun setStatus(key: String, status: InsightFindingStatus)
-
-    @Query("UPDATE insight_findings SET feedbackMultiplier = :multiplier WHERE `key` = :key")
-    suspend fun setFeedback(key: String, multiplier: Double)
 
     @Query("DELETE FROM insight_findings")
     suspend fun clearFindings()

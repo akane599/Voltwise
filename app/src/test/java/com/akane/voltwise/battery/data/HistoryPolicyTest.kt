@@ -266,7 +266,7 @@ class HistoryPolicyTest {
         val stored = HistoryPolicy.session(session()).copy(observedMs = 4000,
             counterCoveredMs = 4000, screenOnMs = 4000)
         val incoming = HistoryPolicy.session(stored)
-        val plan = HistoryPolicy.planSessionImport(HistoryPolicy.session(stored), incoming, hasAppUsage = false)
+        val plan = HistoryPolicy.planSessionImport(HistoryPolicy.session(stored), incoming)
         assertEquals(ImportSessionDisposition.UNCHANGED, plan.disposition)
     }
     @Test fun counterGapExtensionWithClockCorrectionsUpdatesImportedSession() {
@@ -274,7 +274,7 @@ class HistoryPolicyTest {
             observedMs = 3_600_000, counterCoveredMs = 3_600_000)
         val second = first.copy(endTime = 4_191_000, lastSampleTime = 4_191_000, observedMs = 4_200_000)
         val result = runCatching {
-            HistoryPolicy.planSessionImport(HistoryPolicy.session(first), second, hasAppUsage = false)
+            HistoryPolicy.planSessionImport(HistoryPolicy.session(first), second)
         }
         assertTrue("Counter-gap extension must update, not abort: ${result.exceptionOrNull()?.message}", result.isSuccess)
         val plan = result.getOrThrow()
@@ -282,9 +282,9 @@ class HistoryPolicyTest {
         assertEquals(4_190_000L, plan.session.observedMs)
         assertEquals(3_591_428L, plan.session.counterCoveredMs)
         assertEquals(ImportSessionDisposition.UNCHANGED,
-            HistoryPolicy.planSessionImport(plan.session, second, hasAppUsage = false).disposition)
+            HistoryPolicy.planSessionImport(plan.session, second).disposition)
         assertEquals(ImportSessionDisposition.STALE,
-            HistoryPolicy.planSessionImport(plan.session, first, hasAppUsage = false).disposition)
+            HistoryPolicy.planSessionImport(plan.session, first).disposition)
     }
     @Test fun genuinelyDecreasingRawCoverageStillRejectsAnExtension() {
         val previous = session().copy(source = "import:legacy", endTime = 3_591_000,
@@ -295,7 +295,7 @@ class HistoryPolicyTest {
             observedMs = 3_595_000, counterCoveredMs = 3_595_000)
         for (incoming in listOf(counterRegression, observedRegression)) {
             val failure = assertThrows(IllegalArgumentException::class.java) {
-                HistoryPolicy.planSessionImport(previous, incoming, hasAppUsage = false)
+                HistoryPolicy.planSessionImport(previous, incoming)
             }
             assertEquals("Incompatible imported session coverage", failure.message)
         }
@@ -372,31 +372,17 @@ class HistoryPolicyTest {
     }
     @Test fun missingUsageOnlyClearsTheIncomingReadyClaim() {
         val ready = session().copy(appUsageStatus = AppUsageStatus.READY, appUsageBasis = AppUsageBasis.DELTA)
-        val missing = HistoryPolicy.planSessionImport(null, ready, hasAppUsage = false)
+        val missing = HistoryPolicy.planSessionImport(null, ready)
         assertNull(missing.session.appUsageStatus)
         assertNull(missing.session.appUsageBasis)
         assertEquals(ImportSessionDisposition.ADDED, missing.disposition)
-        val full = HistoryPolicy.planSessionImport(missing.session, ready, hasAppUsage = true)
-        assertEquals(AppUsageStatus.READY, full.session.appUsageStatus)
-        assertEquals(ImportSessionDisposition.UPDATED, full.disposition)
+        val storedReady = HistoryPolicy.session(ready)
+        val retained = HistoryPolicy.planSessionImport(storedReady, ready)
+        assertEquals(ImportSessionDisposition.UNCHANGED, retained.disposition)
+        assertEquals(storedReady, retained.session)
         val unavailable = ready.copy(appUsageStatus = AppUsageStatus.NO_ACCESS)
         assertEquals(AppUsageStatus.NO_ACCESS,
-            HistoryPolicy.planSessionImport(null, unavailable, hasAppUsage = false).session.appUsageStatus)
-    }
-
-    @Test fun writtenUsagePromotesOnlyAnImportedNotRecordedParent() {
-        val imported = HistoryPolicy.session(session())
-        val rows = listOf(SessionAppUsage(imported.sessionId, 0, 10_000, "app.a", 1.5, basis = AppUsageBasis.DELTA))
-        val ready = HistoryPolicy.withImportedUsage(imported, rows)
-        assertEquals(AppUsageStatus.READY, ready.appUsageStatus)
-        assertEquals(AppUsageBasis.DELTA, ready.appUsageBasis)
-        assertEquals(imported, HistoryPolicy.withImportedUsage(imported, emptyList()))
-        val local = session()
-        assertEquals(local, HistoryPolicy.withImportedUsage(local, rows))
-        val existing = ready.copy(appUsageBasis = AppUsageBasis.WINDOW_RESET)
-        assertEquals(existing, HistoryPolicy.withImportedUsage(existing, rows))
-        val failed = imported.copy(appUsageStatus = AppUsageStatus.FAILED)
-        assertEquals(failed, HistoryPolicy.withImportedUsage(failed, rows))
+            HistoryPolicy.planSessionImport(null, unavailable).session.appUsageStatus)
     }
 
     @Test fun afterCloseValuesAreNotPartOfTheMeasurementAndAreKeptWhenAFileLacksThem() {
@@ -408,19 +394,6 @@ class HistoryPolicyTest {
         assertEquals(ready.copy(closeReason = null), HistoryPolicy.mergeDerived(ready, bare))
         assertEquals(bare.copy(appUsageStatus = AppUsageStatus.FAILED), HistoryPolicy.mergeDerived(ready, bare.copy(appUsageStatus = AppUsageStatus.FAILED))
             .copy(capacityEstimateMah = null, capacityConfidence = null, capacityBasis = null))
-    }
-    @Test fun appUsageRowsAreWholeRankedBreakdowns() {
-        fun row(rank: Int, others: Boolean = false) = SessionAppUsage("session", rank, 10_000 + rank, "app.$rank", 1.5, cpuTimeMs = 10,
-            isOthers = others, basis = AppUsageBasis.DELTA)
-        val valid = (0 until SessionAppUsage.MAX_ROWS).map { row(it, others = it == SessionAppUsage.MAX_ROWS - 1) } + row(0).copy(sessionId = "other")
-        val imported = HistoryPolicy.appUsage(valid)
-        assertEquals(setOf("import:session", "import:other"), imported.map { it.sessionId }.toSet())
-        assertEquals(imported, HistoryPolicy.appUsage(imported))
-        for (bad in listOf(listOf(row(SessionAppUsage.MAX_ROWS)), listOf(row(-1)), listOf(row(0), row(0)), listOf(row(0, true), row(1, true)),
-            listOf(row(0).copy(powerMah = -0.1)), listOf(row(0).copy(powerMah = Double.POSITIVE_INFINITY)), listOf(row(0).copy(wifiBytes = -1)),
-            listOf(row(0).copy(sessionId = " ")), listOf(row(0).copy(packageName = "=cmd")))) {
-            assertThrows(IllegalArgumentException::class.java) { HistoryPolicy.appUsage(bad) }
-        }
     }
     @Test fun retentionKeepsTheCutoffsWholeLocalDay() {
         assertEquals(0L, HistoryPolicy.retentionCutoffDay(0, ZoneOffset.UTC))

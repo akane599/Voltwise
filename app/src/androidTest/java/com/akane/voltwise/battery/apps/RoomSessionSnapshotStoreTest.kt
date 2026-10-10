@@ -56,7 +56,7 @@ class RoomSessionSnapshotStoreTest {
         val row = db.sessionDao().byId("A")!!
         assertEquals(AppUsageStatus.READY, row.appUsageStatus)
         assertEquals(AppUsageBasis.ABSOLUTE, row.appUsageBasis)
-        assertEquals(listOf("a"), db.appUsageDao().sessionUsageRows("A").map { it.packageName })
+        assertEquals(listOf("a"), db.appUsageDao().sessionUsage("A").first().map { it.packageName })
         assertNotNull(db.appUsageDao().latestSnapshot("A", AppSnapshotKind.END))
         assertFalse("A deleted session is skipped", store.saveEnd("gone", end, result))
     }
@@ -103,7 +103,7 @@ class RoomSessionSnapshotStoreTest {
         }
 
         val sessionBefore = db.sessionDao().byId("rollback")!!
-        val usageBefore = usage.sessionUsageRows("rollback")
+        val usageBefore = usage.sessionUsage("rollback").first()
         val wakersBefore = usage.sessionWakers(listOf("rollback"))
         val headersBefore = usage.snapshots()
         val uidsBefore = headersBefore.associate { it.id to usage.snapshotUids(it.id) }
@@ -138,7 +138,7 @@ class RoomSessionSnapshotStoreTest {
         // snapshot/pruning, capture and READY writes despite the final DAO transaction failing.
         assertEquals("All session fields, including status/basis/capture, must roll back",
             sessionBefore, db.sessionDao().byId("rollback"))
-        assertEquals(usageBefore, usage.sessionUsageRows("rollback"))
+        assertEquals(usageBefore, usage.sessionUsage("rollback").first())
         assertEquals(wakersBefore, usage.sessionWakers(listOf("rollback")))
         assertEquals("No new END or pruned header may survive", headersBefore, usage.snapshots())
         assertEquals("Every original snapshot UID set, including the pruned baseline, must survive",
@@ -177,7 +177,7 @@ class RoomSessionSnapshotStoreTest {
         assertEquals(listOf(1), db.appUsageDao().snapshotUids(header.id).map { it.uid })
         assertEquals(listOf(waker.name), db.appUsageDao().snapshotWakers(header.id).map { it.name })
         assertEquals(AppUsageStatus.READY, db.sessionDao().byId("backward")!!.appUsageStatus)
-        assertEquals(listOf("a"), db.appUsageDao().sessionUsageRows("backward").map { it.packageName })
+        assertEquals(listOf("a"), db.appUsageDao().sessionUsage("backward").first().map { it.packageName })
         assertEquals(setOf("seed1", "seed2", "backward"), db.appUsageDao().snapshots().map { it.sessionId }.toSet())
     }
 
