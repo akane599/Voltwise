@@ -100,7 +100,7 @@ with sqlite3.connect(':memory:') as db:
     for rank in (2, 0, 1):
         db.execute("INSERT INTO session_app_usage(sessionId,rank,uid,packageName,powerMah,isOthers,basis) VALUES('closed',?,?,'p',1.5,?,'DELTA')",
                    (rank, 10000 + rank, int(rank == 2)))
-    assert [r[1] for r in db.execute(query('sessionUsageRows'), {'sessionId': 'closed'})] == [0, 1, 2], 'App usage not in rank order'
+    assert [r[1] for r in db.execute(query('sessionUsage'), {'sessionId': 'closed'})] == [0, 1, 2], 'App usage not in rank order'
     assert len(db.execute(query('usageForSessionsBetween'), {'from': 1500, 'to': 1600}).fetchall()) == 3, 'Export missed overlapping session usage'
     assert db.execute(query('usageForSessionsBetween'), {'from': 6000, 'to': 7000}).fetchall() == [], 'Export mixed in other sessions'
     db.execute(query('setAppUsageStatus'), {'sessionId': 'closed', 'status': 'READY', 'basis': 'DELTA'})
@@ -212,8 +212,7 @@ with sqlite3.connect(':memory:') as db:
         assert [r['key'] for r in db.execute(query(method, 'InsightDao'))] == ['boundary', 'new', 'old'], 'Findings ordering differs'
     assert db.execute("SELECT feedbackMultiplier FROM insight_findings WHERE `key`='old'").fetchone()[0] == 1.0, 'SQL feedback default missing'
     db.execute(query('setStatus', 'InsightDao'), {'key': 'boundary', 'status': 'DISMISSED'})
-    db.execute(query('setFeedback'), {'key': 'boundary', 'multiplier': 2.0})
-    assert tuple(db.execute("SELECT status,feedbackMultiplier FROM insight_findings WHERE `key`='boundary'").fetchone()) == ('DISMISSED', 2.0)
+    assert tuple(db.execute("SELECT status,feedbackMultiplier FROM insight_findings WHERE `key`='boundary'").fetchone()) == ('DISMISSED', 1.0), 'Status update changed feedback'
     assert tuple(db.execute("SELECT status,feedbackMultiplier FROM insight_findings WHERE `key`='new'").fetchone()) == ('ACTIVE', 1.0), 'Targeted update touched another finding'
     db.execute(query('purgeFindingsSeenBefore'), {'ms': 100})
     assert [r['key'] for r in db.execute(query('findingsOnce'))] == ['boundary', 'new'], 'Retention boundary wrong'
