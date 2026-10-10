@@ -22,7 +22,7 @@ Room database `battery.db`, **version 9**, `exportSchema = true`.
 | `snapshot_device_wakers` | `SnapshotDeviceWaker` | (`snapshotId`,`kind`,`name`), FK → `app_snapshots` ON DELETE CASCADE | v7: device-level wakeup sources per snapshot (count, total ms). |
 | `session_device_wakers` | `SessionDeviceWaker` | (`sessionId`,`kind`,`name`), FK → `charge_sessions` ON DELETE CASCADE | v7: per-session device waker deltas. |
 | `insight_findings` | `InsightFindingEntity` | `key` (stable finding key); idx `status` | v7: current/past findings: type, uid/package, severity, confidence, score, first/last seen, status, `feedbackMultiplier` (default 1.0), versioned `evidenceJson` (`battery/insights/FindingCodec.kt`). |
-| `insight_actions` | `InsightActionEntity` | `id` autoinc; idx `status` | v7: privileged-action journal (PREPARED→APPLIED/FAILED/UNKNOWN, undo): finding key, type, package/uid/user, prior and target state; v8 adds nullable `metric` (the fired finding's lead metric, frozen at apply time for Action effect); reconciled at startup (`InsightActionRepository.reconcile()`). |
+| `insight_actions` | `InsightActionEntity` | `id` autoinc; idx `status` | v7: privileged-action journal (PREPARED→APPLIED/FAILED/UNKNOWN, undo): finding key, type, package/uid/user, prior and target state; v8 adds nullable `metric` (the fired finding's lead metric, frozen at apply time for Action effect); reconciled at startup (`InsightActionRepository.reconcile()`). Age retention (`purgeTerminalActionsBefore`) deletes REVERTED/FAILED/ONE_SHOT rows and FORCE_STOP rows left UNKNOWN (no Undo or reconciliation) past the cutoff; other UNKNOWN, PREPARED and APPLIED rows are kept. |
 
 ## DAOs (`Dao.kt`)
 - `BatteryDao`: sample insert/lookups, chart queries (`chartSamples`, `sessionChartSamples` bucketed), `latestSamplesBetween` (newest N, returned ascending), `boundStorage`, `purge`, `clearAll`. `ExportImport.kt`'s `BatteryDao.exportSamples` uses it for an ALL export, so that export holds the newest `MAX_SAMPLES`.
@@ -30,7 +30,7 @@ Room database `battery.db`, **version 9**, `exportSchema = true`.
 - `PersistDao`: `persistSample(sample, session, days)` is the single transactional write the repository uses per persisted capture.
 - `DailySummaryDao`: per-day upsert/read/range, `purgeBefore`.
 - `AppUsageDao`: snapshot header + UID rows, session app usage. `insertSnapshot` writes header, UID rows and wakers in one transaction, then `pruneSnapshots` keeps the `SNAPSHOTS_KEPT` (3) last inserted snapshots by `id` (not `capturedAt`, so a backward clock change can't prune the new row) plus open-session BASELINEs; readers (`latestSnapshot`, `snapshots`) order by `capturedAt`.
-- `InsightDao`: findings (flow/once, upsert, status, feedback, clear, `purgeFindingsSeenBefore`) and the action journal (`actions`, `actionsOnce`, `actionsWithStatus`, …).
+- `InsightDao`: findings (flow/once, upsert (also carries Not-a-problem feedback), status, clear, `purgeFindingsSeenBefore`) and the action journal (`actions`, `actionsOnce`, `actionsWithStatus`, …).
 
 `EnumConverters` (in `BatteryDatabase.kt`) never uses `valueOf`: unknown enum text reads as null, or
 as a documented fallback for the two NOT NULL enum columns.
