@@ -107,7 +107,12 @@ enum class InsightMessageCode {
  * with the same [code] stay distinct and only the exact published instance can be consumed.
  */
 @Immutable
-data class InsightActionMessage(val code: InsightMessageCode, val actionId: Long? = null, val seq: Long = 0)
+data class InsightActionMessage(
+    val code: InsightMessageCode,
+    val actionId: Long? = null,
+    val seq: Long = 0,
+    val notificationsBlocked: Boolean = false,
+)
 
 sealed interface InsightUiEffect {
     data class Message(val result: InsightActionMessage) : InsightUiEffect

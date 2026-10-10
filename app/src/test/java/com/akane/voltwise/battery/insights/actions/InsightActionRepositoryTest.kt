@@ -70,11 +70,12 @@ class InsightActionRepositoryTest {
         var intercept: suspend (PrivilegedCommand) -> Unit = {}
         var now = 100L
         var alerts = 0
+        var alertsPostable = true
         val repo = InsightActionRepository(dao, ActionExecutor {
             commands += it
             intercept(it)
             replies.removeFirst()
-        }, inspector, { now++ }, { alerts++ })
+        }, inspector, { now++ }, { alerts++ }, { alertsPostable })
         fun reply(vararg output: String) { replies.addAll(output.map(::ok)) }
         fun row() = dao.rows.value.single()
         suspend fun apply(type: ActionType = ActionType.RESTRICT_BACKGROUND) = repo.apply(finding(), rec(type))
@@ -998,7 +999,7 @@ class InsightActionRepositoryTest {
         val dao = Dao()
         val failure = java.io.IOException("settings write failed")
         val repo = InsightActionRepository(dao, { error("alert must not execute a shell action") }, Inspector(),
-            { 100L }, { throw failure })
+            { 100L }, { throw failure }, { error("failed setting must not check postability") })
         try {
             repo.apply(finding(Subject.Device), rec(ActionType.ENABLE_HIGH_BATTERY_ALERT))
             fail("The enabler IOException must propagate")
@@ -1006,6 +1007,30 @@ class InsightActionRepositoryTest {
             assertSame(failure, actual)
         }
         assertTrue("A failed enabler must not write a successful one-shot journal row", dao.rows.value.isEmpty())
+    }
+
+    @Test fun blockedAlertsStillEnableAndJournalButReportNotificationsBlocked() = runTest {
+        val f = Fixture().apply { alertsPostable = false }
+        val result = f.repo.apply(finding(Subject.Device), rec(ActionType.ENABLE_HIGH_BATTERY_ALERT))
+        assertTrue(result is ActionResult.OneShot)
+        assertEquals(1, f.alerts)
+        assertEquals(ONE_SHOT, f.row().status)
+        assertEquals((result as ActionResult.OneShot).actionId, f.row().id)
+        assertNotNull(f.row().appliedAt)
+        assertTrue(f.commands.isEmpty())
+        assertTrue("Blocked alerts must be reported even though the setting and journal succeed", result.notificationsBlocked)
+    }
+
+    @Test fun postableAlertsEnableAndJournalWithoutNotificationsBlocked() = runTest {
+        val f = Fixture().apply { alertsPostable = true }
+        val result = f.repo.apply(finding(Subject.Device), rec(ActionType.ENABLE_HIGH_BATTERY_ALERT))
+        assertTrue(result is ActionResult.OneShot)
+        assertEquals(1, f.alerts)
+        assertEquals(ONE_SHOT, f.row().status)
+        assertEquals((result as ActionResult.OneShot).actionId, f.row().id)
+        assertNotNull(f.row().appliedAt)
+        assertTrue(f.commands.isEmpty())
+        assertFalse("Postable alerts must not be reported as blocked", result.notificationsBlocked)
     }
 
     @Test fun manualSettingsAreNotJournaledAndAlertNeedsNoPrivilege() = runTest {

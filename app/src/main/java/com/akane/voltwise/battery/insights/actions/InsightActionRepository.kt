@@ -19,6 +19,7 @@ class InsightActionRepository(
     private val inspector: TargetInspector,
     private val clock: () -> Long,
     private val alertEnabler: suspend () -> Unit,
+    private val alertsPostable: () -> Boolean,
 ) {
     private val mutex = Mutex()
     val actions: Flow<List<InsightActionEntity>> = dao.actions()
@@ -40,7 +41,7 @@ class InsightActionRepository(
             if (rec.action == ActionType.ENABLE_HIGH_BATTERY_ALERT) {
                 alertEnabler()
                 val id = dao.insertAction(row(finding, rec.action, ONE_SHOT).copy(appliedAt = clock()))
-                return@withLock ActionResult.OneShot(id)
+                return@withLock ActionResult.OneShot(id, notificationsBlocked = !alertsPostable())
             }
             if (app == null) return@withLock ActionResult.Refused(RefusalCode.INVALID_SUBJECT)
             validate(app.packageName, app.uid)?.let { return@withLock ActionResult.Refused(it) }

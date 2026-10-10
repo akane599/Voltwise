@@ -233,7 +233,9 @@ internal class InsightApplyFlow(
                         RefusalCode.INSPECTION_FAILED -> InsightMessageCode.INSPECTION_FAILED
                         RefusalCode.ALREADY_AT_TARGET -> InsightMessageCode.ALREADY_AT_TARGET
                     }))
-                    is ActionResult.OneShot -> message(InsightActionMessage(InsightMessageCode.ONE_SHOT, result.actionId))
+                    is ActionResult.OneShot -> message(InsightActionMessage(
+                        InsightMessageCode.ONE_SHOT, result.actionId, notificationsBlocked = result.notificationsBlocked,
+                    ))
                     is ActionResult.OpenSettings -> {
                         results.consume(ownLast)
                         events.trySend(InsightUiEffect.OpenSettings(result.spec))
