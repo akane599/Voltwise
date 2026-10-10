@@ -87,6 +87,41 @@ class BatteryStatsBinaryOutputTest {
         assertEquals("", result.output)
     }
 
+    @Test fun denialOnTheSuProcessStdoutRetainsTypedAccessLoss() {
+        val result = CommandOutput.run(
+            listOf("su", "-c", "dumpsys batterystats --proto --charged"), 1000, CommandOutput.MAX_BYTES,
+        ) {
+            ProcessBuilder("sh", "-c", "printf 'su: permission denied\\n'; exit 1").start().also {
+                assertEquals("Denial must come from stdout only", -1, it.errorStream.read())
+            }
+        }
+        assertEquals(CommandOutput.AccessFailure.DENIED, result.accessFailure)
+        assertFalse(result.successful)
+        assertEquals("", result.output)
+    }
+
+    @Test fun nonDenialStdoutOnTheSuProcessDoesNotBecomeAccessLoss() {
+        val result = CommandOutput.run(
+            listOf("su", "-c", "dumpsys batterystats --proto --charged"), 1000, CommandOutput.MAX_BYTES,
+        ) {
+            ProcessBuilder("sh", "-c", "printf 'Error: something else\\n'; exit 1").start().also {
+                assertEquals("Control must come from stdout only", -1, it.errorStream.read())
+            }
+        }
+        assertNull(result.accessFailure)
+        assertFalse(result.successful)
+        assertEquals("", result.output)
+    }
+
+    @Test fun embeddedProtobufNamesNeverBecomeAccessLossEvidence() {
+        val result = CommandOutput.run(
+            listOf("su", "-c", "dumpsys batterystats --proto --charged"), 1000, CommandOutput.MAX_BYTES,
+        ) { ProcessBuilder("sh", "-c", "printf '\\012\\002xxpermission denied'; exit 1").start() }
+        assertNull(result.accessFailure)
+        assertFalse(result.successful)
+        assertEquals("", result.output)
+    }
+
     @Test fun failedBinaryLaunchRetainsTypedUnavailableAccess() {
         val result = CommandOutput.runBinary(BatteryStatsBinaryOutput.ARGV, 1000, CommandOutput.MAX_BYTES) {
             throw java.io.IOException("Cannot run program su: error=2, No such file or directory")
