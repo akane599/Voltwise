@@ -2,12 +2,10 @@ package com.akane.voltwise.battery.data
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.intPreferencesKey
 import com.akane.voltwise.battery.data.sampling.SamplerState
-import com.akane.voltwise.settings.AppSettings
-import com.akane.voltwise.settings.SETTINGS_RECOVERED
+import com.akane.voltwise.settings.Retention
 import com.akane.voltwise.settings.SettingsMigrator
-import com.akane.voltwise.settings.retentionDays
+import com.akane.voltwise.settings.resolveRetention
 import kotlinx.coroutines.flow.first
 
 /** Single-writer age maintenance; size limits remain independent of this settings/clock authority. */
@@ -43,14 +41,11 @@ class HistoryRetention(
         }
         val trustedNow = reference?.let { maxOf(it, minOf(nowMs, it + elapsed)) } ?: nowMs
         state.retentionClock = SamplerState.RetentionClock(trustedNow, elapsedMs, boot)
-        val index = prefs[RETENTION_INDEX]
-            ?: if (prefs[SETTINGS_RECOVERED] != true) AppSettings().dataRetentionIndex else null
-        val days = index?.takeIf { it in 0..5 }?.let { AppSettings(dataRetentionIndex = it).retentionDays }
+        val days = (resolveRetention(prefs) as? Retention.Days)?.days
         return if (reference != null) days?.let { minOf(trustedNow, nowMs) - it * DAY_MS } else null
     }
 
     private companion object {
         const val DAY_MS = 86_400_000L
-        val RETENTION_INDEX = intPreferencesKey("data_retention_index")
     }
 }

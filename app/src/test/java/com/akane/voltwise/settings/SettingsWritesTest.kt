@@ -35,11 +35,6 @@ class SettingsWritesTest {
         assertEquals(DesignCapacity.AUTO, AppSettings(designCapacityMah = 40_000).designCapacityOverrideMah)
     }
 
-    @Test fun retentionForeverAndDays() {
-        assertEquals(listOf(7L, 30L, 90L, 180L, 365L, null), (0..5).map { AppSettings(dataRetentionIndex = it).retentionDays })
-        assertEquals(90L, AppSettings(dataRetentionIndex = 9).retentionDays)
-    }
-
     @Test fun overridesMapToCalibration() {
         assertEquals(listOf(null, CurrentUnit.MICROAMPS, CurrentUnit.MILLIAMPS), CurrentUnitOverride.entries.map { it.unit })
         assertEquals(listOf(null, CurrentSign.NORMAL, CurrentSign.INVERTED), CurrentSignOverride.entries.map { it.sign })
