@@ -1,9 +1,5 @@
 package com.akane.voltwise.ui.screens.insights
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.annotation.PluralsRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -59,7 +55,6 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.akane.voltwise.R
 import com.akane.voltwise.battery.apps.AppInfoSource
 import com.akane.voltwise.battery.apps.AppLabel
-import com.akane.voltwise.battery.insights.actions.IntentSpec
 import com.akane.voltwise.battery.insights.model.ActionType
 import com.akane.voltwise.battery.insights.model.Attribution
 import com.akane.voltwise.battery.insights.model.AttributionKind
@@ -81,6 +76,7 @@ import com.akane.voltwise.viewmodel.InsightMessageCode
 import com.akane.voltwise.viewmodel.InsightUiEffect
 import com.akane.voltwise.viewmodel.InsightsEvent
 import com.akane.voltwise.viewmodel.RecommendationState
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -108,12 +104,16 @@ fun FindingDetailsScreen(
     val appInfo: AppInfoSource = koinInject()
     val back by rememberUpdatedState(onBack)
     var leaving by rememberSaveable { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    val settingsUnavailable by rememberUpdatedState(stringResource(R.string.insights_settings_unavailable))
     LaunchedEffect(vm) {
         vm.effects.collect { effect ->
             when (effect) {
                 // The snackbar follows the ViewModel's held result (state.apply.lastResult), which survives rotation.
                 is InsightUiEffect.Message -> if (effect.result.code == InsightMessageCode.FEEDBACK_FAILED) leaving = false
-                is InsightUiEffect.OpenSettings -> openSettings(context, effect.spec)
+                is InsightUiEffect.OpenSettings -> if (!openSettingsPage(context, effect.spec)) {
+                    launch { snackbar.showSnackbar(settingsUnavailable) }
+                }
                 is InsightUiEffect.OpenFinding -> Unit
             }
         }
@@ -138,6 +138,7 @@ fun FindingDetailsScreen(
         onBack = onBack,
         onOpenAccessSetup = onOpenAccessSetup,
         modifier = modifier,
+        snackbar = snackbar,
     )
 }
 
@@ -160,16 +161,6 @@ private fun appSubjects(state: FindingDetailsUiState): Map<String, Int> {
     return apps
 }
 
-private fun openSettings(context: Context, spec: IntentSpec) {
-    val intent = Intent(spec.action)
-    spec.packageName?.let { intent.data = Uri.fromParts("package", it, null) }
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        // A settings page this build doesn't have: there is nothing to open, and nothing was changed.
-    }
-}
-
 /** Opening a settings page changes nothing by itself, so it skips the confirmation and goes straight there. */
 internal val ActionType.opensSettings: Boolean
     get() = this == ActionType.OPEN_APP_SETTINGS || this == ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS
@@ -182,7 +173,7 @@ internal val ActionType.opensSettings: Boolean
  * Dismiss, and fixes already applied with Undo and their measured association. From 840 dp the finding sits on the
  * start and what to do on the end. [labels] names apps by package (missing while loading). Until the first report
  * arrives (not [FindingDetailsUiState.loaded]) it says it's loading; "finding gone" is only for a loaded report
- * without it. The ViewModel's held result shows as a snackbar, consumed with [InsightsEvent.ResultShown].
+ * without it. The ViewModel's held result shows in [snackbar], consumed with [InsightsEvent.ResultShown].
  */
 @Composable
 fun FindingDetailsContent(
@@ -193,11 +184,11 @@ fun FindingDetailsContent(
     onBack: () -> Unit,
     onOpenAccessSetup: () -> Unit,
     modifier: Modifier = Modifier,
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     val spacing = MaterialTheme.spacing
     val twoColumns = LocalWindowInfo.current.containerSize.width / LocalDensity.current.density >= TWO_COLUMN_MIN_WIDTH_DP
     val column = Arrangement.spacedBy(spacing.sm)
-    val snackbar = remember { SnackbarHostState() }
     ResultSnackbar(snackbar, state.apply.lastResult, onEvent)
     val finding = state.finding
 

@@ -185,6 +185,7 @@
     <string name="insights_message_reverted">Change undone.</string>
     <string name="insights_message_changed_externally">This setting was changed outside Voltwise, so nothing was undone.</string>
     <string name="insights_message_one_shot">Done.</string>
+    <string name="insights_message_one_shot_notifications_off">High-battery alert is on, but notifications are off.</string>
     <string name="insights_message_read_failed">Couldn\'t read the app\'s current setting. Nothing was changed.</string>
     <string name="insights_message_execution_failed">Android didn\'t accept the change.</string>
     <string name="insights_message_not_applied">The setting didn\'t change and is still at its original value.</string>
@@ -207,4 +208,7 @@
     <string name="insights_message_recommendation_unavailable">This fix isn\'t offered for the finding anymore.</string>
     <string name="insights_message_analysis_failed">Couldn\'t analyze your battery data.</string>
     <string name="insights_message_feedback_failed">Couldn\'t save your feedback.</string>
+
+    <!-- Shown when no settings page (the one asked for, the app details page or Settings itself) could open -->
+    <string name="insights_settings_unavailable">Settings page unavailable on this device.</string>
 </resources>

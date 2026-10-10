@@ -179,6 +179,7 @@
     <string name="insights_message_reverted">Cambio deshecho.</string>
     <string name="insights_message_changed_externally">Este ajuste se cambió fuera de Voltwise, así que no se deshizo nada.</string>
     <string name="insights_message_one_shot">Hecho.</string>
+    <string name="insights_message_one_shot_notifications_off">La alerta de batería alta está activada, pero las notificaciones están desactivadas.</string>
     <string name="insights_message_read_failed">No se pudo leer el ajuste actual de la app. No se cambió nada.</string>
     <string name="insights_message_execution_failed">Android no aceptó el cambio.</string>
     <string name="insights_message_not_applied">El ajuste no cambió y sigue con su valor original.</string>
@@ -201,4 +202,6 @@
     <string name="insights_message_recommendation_unavailable">Esta corrección ya no se ofrece para el hallazgo.</string>
     <string name="insights_message_analysis_failed">No se pudieron analizar los datos de la batería.</string>
     <string name="insights_message_feedback_failed">No se pudo guardar tu opinión.</string>
+
+    <string name="insights_settings_unavailable">La página de ajustes no está disponible en este dispositivo.</string>
 </resources>

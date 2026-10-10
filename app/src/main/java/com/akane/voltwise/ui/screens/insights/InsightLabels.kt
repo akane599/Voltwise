@@ -27,6 +27,7 @@ import com.akane.voltwise.ui.format.formatRate
 import com.akane.voltwise.ui.format.mahText
 import com.akane.voltwise.ui.format.valueWithUnit
 import com.akane.voltwise.viewmodel.AppliedInsightAction
+import com.akane.voltwise.viewmodel.InsightActionMessage
 import com.akane.voltwise.viewmodel.InsightMessageCode
 import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
@@ -214,6 +215,16 @@ internal fun InsightMessageCode.messageRes(): Int = when (this) {
     InsightMessageCode.ANALYSIS_FAILED -> R.string.insights_message_analysis_failed
     InsightMessageCode.FEEDBACK_FAILED -> R.string.insights_message_feedback_failed
 }
+
+/** A result's snackbar text: its code's message, except an alert that was turned on but can't post says so. */
+@StringRes
+internal fun InsightActionMessage.messageRes(): Int =
+    if (notificationsBlocked) R.string.insights_message_one_shot_notifications_off else code.messageRes()
+
+/** The snackbar action a result offers: opening the app's notification settings when its alert can't post. */
+@StringRes
+internal fun InsightActionMessage.actionLabelRes(): Int? =
+    if (notificationsBlocked) R.string.settings_notifications_turn_on else null
 
 /** How one [Evidence] compares with its baseline, which decides its wording. */
 internal sealed interface EvidenceComparison {
