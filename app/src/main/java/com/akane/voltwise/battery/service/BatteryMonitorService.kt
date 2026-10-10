@@ -27,6 +27,7 @@ import com.akane.voltwise.battery.measurement.BatteryAlerts
 import com.akane.voltwise.battery.measurement.BatteryAlert
 import com.akane.voltwise.battery.measurement.BatteryAlertSettings
 import com.akane.voltwise.battery.measurement.AlertReading
+import com.akane.voltwise.battery.measurement.alertEpisodeWriteDue
 import com.akane.voltwise.battery.util.UpdateGate
 import com.akane.voltwise.battery.widget.WidgetUpdater
 import com.akane.voltwise.settings.useFahrenheit
@@ -159,7 +160,7 @@ class BatteryMonitorService : Service() {
                         diagnostics.record(DiagnosticCode.ALERT_FAILED)
                         Log.w("BatteryAlerts", "Alert delivery failed (${e.javaClass.simpleName})")
                     }
-                    if (alerts.latches != before || (alerts.latches.isNotEmpty() && alerts.lastAcceptedElapsedMs != savedElapsedMs)) {
+                    if (alertEpisodeWriteDue(alerts.latches != before, alerts.latches.isNotEmpty(), savedElapsedMs, sample.elapsedMs)) {
                         // Refresh while latched so an abrupt process death does not age a still-observed episode.
                         preferences.edit().putStringSet("latched", alerts.latches.map { it.name }.toSet())
                             .putLong("last_elapsed_ms", sample.elapsedMs)
