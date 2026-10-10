@@ -556,14 +556,41 @@ class InsightsViewModelTest {
         assertEquals(InsightMessageCode.APPLIED, vm.state.value.apply.lastResult?.code)
     }
 
-    @Test fun processDeathRestoresDialogAndSelectionWithoutApplying() = runTest {
-        val saved = SavedStateHandle()
+    @Test fun wrongTypePendingActionIsIgnoredWithoutApplying() = runTest {
+        val restored = runCatching { start(SavedStateHandle(mapOf(
+            "insights.pending.key" to "finding",
+            "insights.pending.action" to 1,
+        ))) }
+        assertTrue("a non-String action must not crash construction: ${restored.exceptionOrNull()}", restored.isSuccess)
+        assertNull("a non-String action must not restore a pending request", restored.getOrThrow().state.value.apply.pending)
+        assertTrue("malformed saved state must never apply", source.applied.isEmpty())
+    }
+
+    @Test fun wrongTypePendingKeyIsIgnoredWithoutApplying() = runTest {
+        val restored = runCatching { start(SavedStateHandle(mapOf(
+            "insights.pending.key" to 1,
+            "insights.pending.action" to ActionType.RESTRICT_BACKGROUND.name,
+        ))) }
+        assertTrue("a non-String finding key must not crash construction: ${restored.exceptionOrNull()}", restored.isSuccess)
+        assertNull("a non-String finding key must not restore a pending request", restored.getOrThrow().state.value.apply.pending)
+        assertTrue("malformed saved state must never apply", source.applied.isEmpty())
+    }
+
+    @Test fun wrongTypeRouteKeyIsIgnoredWithoutApplying() = runTest {
+        val restored = runCatching { start(SavedStateHandle(mapOf("key" to 1))) }
+        assertTrue("a non-String route key must not crash construction: ${restored.exceptionOrNull()}", restored.isSuccess)
+        assertNull("the route key is not apply state", restored.getOrThrow().state.value.apply.pending)
+        assertTrue("a route key must never apply", source.applied.isEmpty())
+    }
+
+    @Test fun processDeathRestoresDialogWithoutApplyingOrOverwritingRouteKey() = runTest {
+        val saved = SavedStateHandle(mapOf("key" to "details-route"))
         val original = start(saved)
         original.onEvent(InsightsEvent.RequestApply("finding", ActionType.RESTRICT_BACKGROUND))
         runCurrent()
         val restored = start(SavedStateHandle(saved.keys().associateWith { saved.get<Any?>(it) }))
         assertEquals(original.state.value.apply.pending, restored.state.value.apply.pending)
-        assertEquals("finding", restored.state.value.apply.selectedKey)
+        assertEquals("RequestApply must preserve the details route argument", "details-route", saved.get<String>("key"))
         assertEquals(0, source.applied.size)
         restored.onEvent(InsightsEvent.CancelApply)
         restored.onEvent(InsightsEvent.ConfirmApply)
@@ -598,7 +625,8 @@ class InsightsViewModelTest {
     }
 
     @Test fun dismissalFeedbackAndNavigationUseTheirOwnPaths() = runTest {
-        val vm = start()
+        val saved = SavedStateHandle(mapOf("key" to "details-route"))
+        val vm = start(saved)
         val effects = mutableListOf<InsightUiEffect>()
         backgroundScope.launch { vm.effects.collect { effects += it } }
         vm.onEvent(InsightsEvent.Dismiss("one"))
@@ -608,7 +636,7 @@ class InsightsViewModelTest {
         assertEquals(listOf("one"), source.dismissed)
         assertEquals(listOf("two"), source.feedback)
         assertEquals(listOf(InsightUiEffect.OpenFinding("three")), effects)
-        assertEquals("three", vm.state.value.apply.selectedKey)
+        assertEquals("OpenFinding must preserve the details route argument", "details-route", saved.get<String>("key"))
         assertTrue(source.applied.isEmpty())
     }
 

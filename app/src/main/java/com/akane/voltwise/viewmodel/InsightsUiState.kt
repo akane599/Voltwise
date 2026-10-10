@@ -62,7 +62,6 @@ data class PendingInsightApply(val key: String, val action: ActionType)
 @Immutable
 data class InsightApplyState(
     val pending: PendingInsightApply? = null,
-    val selectedKey: String? = null,
     val working: Boolean = false,
     /** Latest application-owned unconsumed result; ResultShown(this result) consumes it across both destinations. */
     val lastResult: InsightActionMessage? = null,
