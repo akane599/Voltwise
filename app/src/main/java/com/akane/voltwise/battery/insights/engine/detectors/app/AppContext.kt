@@ -50,19 +50,22 @@ data class AppContext(val inputs: InsightInputs, val windows: List<EligibleAppWi
             current.atMs,
             HALF_LIFE_MS,
         ) ?: return null
+        // A small MAD must not turn ordinary proportional variation into a large z score.
+        // At z = 3 this requires at least a doubling, while retaining the metric's absolute floor.
+        val changeFloor = maxOf(floor, baseline.median)
         val multiplier = multiplier(type)
         val recent = windows.takeLast(evaluated)
         if (recent.size != evaluated) return null
         for (window in recent) {
             val value = value(metric, window) ?: return null
-            val z = baseline.robustZ(value, floor) ?: return null
+            val z = baseline.robustZ(value, changeFloor) ?: return null
             if (value < floor * multiplier || value - baseline.median < floor * multiplier ||
                 z < RobustBaseline.Z_THRESHOLD * multiplier
             ) return null
         }
         val observed = value(metric) ?: return null
-        val z = baseline.robustZ(observed, floor) ?: return null
-        return AppAnomaly(metric, observed, baseline, measured, points, z, floor)
+        val z = baseline.robustZ(observed, changeFloor) ?: return null
+        return AppAnomaly(metric, observed, baseline, measured, points, z, changeFloor)
     }
 
     fun finding(type: FindingType, anomaly: AppAnomaly, extra: List<Evidence> = emptyList()): Finding {

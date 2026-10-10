@@ -84,7 +84,7 @@ class AppDetectorTest(private val type: FindingType) {
         }
     }
 
-    @Test fun wideWakeupUsualRangeKeepsMadBand() {
+    @Test fun wakeupUsualRangeUsesMedianWhenItExceedsMadBand() {
         org.junit.Assume.assumeTrue(type == FindingType.WAKEUP_STORM)
         val alarms = listOf(140L, 160L, 180L, 200L, 220L, 240L, 400L)
         val sessions = alarms.indices.map { session(it) }
@@ -93,7 +93,8 @@ class AppDetectorTest(private val type: FindingType) {
         }
         val finding = detected(inputs(sessions, rows)).single()
         val median = finding.evidence.single().baseline!!
-        val band = RobustBaseline.Z_THRESHOLD * RobustBaseline.MAD_SCALE * 20.0
+        val band = median
+        assertTrue(band > RobustBaseline.Z_THRESHOLD * RobustBaseline.MAD_SCALE * 20.0)
         assertEquals(200.0, median, 0.0)
         assertTrue(band > WakeupStorm.ALARMS_FLOOR_PER_H)
         assertEquals(alarms.size, finding.series.size)

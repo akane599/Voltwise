@@ -20,7 +20,6 @@ import kotlin.math.roundToLong
 import kotlin.math.sqrt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
@@ -52,10 +51,8 @@ class AppAnomalyFalsePositiveTest(
 ) {
     @Test fun flatFalsePositiveRateAtMostTwoPercent() = checkFalsePositives("flat", 37201, 0.0)
 
-    @Ignore("SQ-372: bound fails, see report")
     @Test fun noisyFalsePositiveRateAtMostTwoPercent() = checkFalsePositives("noisy", 37202, 0.0)
 
-    @Ignore("SQ-372: bound fails, see report")
     @Test fun ar1FalsePositiveRateAtMostTwoPercent() = checkFalsePositives("AR1", 37203, 0.7)
 
     @Test fun threefoldNoisyEffectDetectedAtLeastNinetyPercent() {
