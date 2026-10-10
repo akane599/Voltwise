@@ -178,6 +178,7 @@
     <string name="insights_message_reverted">Değişiklik geri alındı.</string>
     <string name="insights_message_changed_externally">Bu ayar Voltwise dışında değiştirildi; hiçbir şey geri alınmadı.</string>
     <string name="insights_message_one_shot">Yapıldı.</string>
+    <string name="insights_message_one_shot_notifications_off">Yüksek pil uyarısı açık, ancak bildirimler kapalı.</string>
     <string name="insights_message_read_failed">Uygulamanın geçerli ayarı okunamadı. Hiçbir şey değiştirilmedi.</string>
     <string name="insights_message_execution_failed">Android değişikliği kabul etmedi.</string>
     <string name="insights_message_not_applied">Ayar değişmedi, hâlâ eski değerinde.</string>
@@ -200,4 +201,6 @@
     <string name="insights_message_recommendation_unavailable">Bu düzeltme artık bu bulgu için önerilmiyor.</string>
     <string name="insights_message_analysis_failed">Pil verilerin analiz edilemedi.</string>
     <string name="insights_message_feedback_failed">Geri bildirimin kaydedilemedi.</string>
+
+    <string name="insights_settings_unavailable">Bu cihazda ayarlar sayfası kullanılamıyor.</string>
 </resources>

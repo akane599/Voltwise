@@ -33,7 +33,8 @@ import org.koin.core.parameter.parametersOf
 /**
  * Entries for every [Routes] key, rendered against [topLevelBackStack]'s currently visible tab.
  * One entry provider is shared by all 5 tabs: a detail route (e.g. [Routes.SettingsStatus]) is pushed onto
- * whichever tab is active when it's reached (Settings, or Apps from its access banner).
+ * whichever tab is active when it's reached (Settings; or the access banner or notice of Apps, Insights,
+ * FindingDetails, SessionDetails or AppDetails).
  *
  * Every tab's stack is decorated all the time, each with its own saved-state and ViewModel stores; `NavDisplay`
  * only gets the visible tab's entries. Switching tabs therefore pops nothing: each tab keeps its screen state

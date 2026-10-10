@@ -1,9 +1,5 @@
 package com.akane.voltwise.ui.screens.insights
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,8 +19,10 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +42,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.akane.voltwise.R
 import com.akane.voltwise.battery.apps.AppInfoSource
 import com.akane.voltwise.battery.apps.AppLabel
-import com.akane.voltwise.battery.insights.actions.IntentSpec
 import com.akane.voltwise.battery.insights.engine.detectors.app.AppContext
 import com.akane.voltwise.battery.insights.model.Subject
 import com.akane.voltwise.ui.components.EmptyState
@@ -58,6 +56,7 @@ import com.akane.voltwise.viewmodel.InsightsEvent
 import com.akane.voltwise.viewmodel.InsightsUiState
 import com.akane.voltwise.viewmodel.InsightsViewModel
 import com.akane.voltwise.viewmodel.RecommendationState
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -83,12 +82,16 @@ fun InsightsScreen(
     val context = LocalContext.current
     val appInfo: AppInfoSource = koinInject()
     val openFinding by rememberUpdatedState(onOpenFinding)
+    val snackbar = remember { SnackbarHostState() }
+    val settingsUnavailable by rememberUpdatedState(stringResource(R.string.insights_settings_unavailable))
     LaunchedEffect(vm) {
         vm.effects.collect { effect ->
             when (effect) {
                 // The snackbar follows the ViewModel's held result (state.apply.lastResult), which survives rotation.
                 is InsightUiEffect.Message -> Unit
-                is InsightUiEffect.OpenSettings -> openSettings(context, effect.spec)
+                is InsightUiEffect.OpenSettings -> if (!openSettingsPage(context, effect.spec)) {
+                    launch { snackbar.showSnackbar(settingsUnavailable) }
+                }
                 is InsightUiEffect.OpenFinding -> openFinding(effect.key)
             }
         }
@@ -104,6 +107,7 @@ fun InsightsScreen(
         onEvent = vm::onEvent,
         onOpenAccessSetup = onOpenAccessSetup,
         modifier = modifier,
+        snackbar = snackbar,
     )
 }
 
@@ -118,7 +122,8 @@ internal fun silentResultCodes(error: InsightMessageCode?): Set<InsightMessageCo
  * Shows the ViewModel's held [result] in [snackbar] (codes in [silentCodes] skip it), then consumes that exact
  * result with [InsightsEvent.ResultShown] once it was shown or dismissed, so a newer result published meanwhile
  * stays held. A rotation mid-snackbar cancels this before the consume, so the result shows again on the new
- * screen instead of being lost.
+ * screen instead of being lost. An alert turned on while notifications are off offers Turn on, which opens the
+ * app's notification settings (or the next page [openSettingsPage] can open; if none, says so).
  */
 @Composable
 internal fun ResultSnackbar(
@@ -127,11 +132,23 @@ internal fun ResultSnackbar(
     onEvent: (InsightsEvent) -> Unit,
     silentCodes: Set<InsightMessageCode> = emptySet(),
 ) {
-    val text = result?.let { stringResource(it.code.messageRes()) }
+    val text = result?.let { stringResource(it.messageRes()) }
+    val actionLabel = result?.actionLabelRes()?.let { stringResource(it) }
+    val unavailable = stringResource(R.string.insights_settings_unavailable)
+    val context = LocalContext.current
+    // Outlives this result's effect, which the consume below cancels.
+    val scope = rememberCoroutineScope()
     val currentOnEvent by rememberUpdatedState(onEvent)
     LaunchedEffect(result) {
         if (result == null || text == null) return@LaunchedEffect
-        if (result.code !in silentCodes) snackbar.showSnackbar(text)
+        if (result.code !in silentCodes) {
+            // An action needs time to reach (Material's default for one, Indefinite, would never time out).
+            val duration = if (actionLabel == null) SnackbarDuration.Short else SnackbarDuration.Long
+            val shown = snackbar.showSnackbar(text, actionLabel, duration = duration)
+            if (shown == SnackbarResult.ActionPerformed && !openSettingsPage(context, notificationSettings(context.packageName))) {
+                scope.launch { snackbar.showSnackbar(unavailable) }
+            }
+        }
         currentOnEvent(InsightsEvent.ResultShown(result))
     }
 }
@@ -144,16 +161,6 @@ private fun appSubjects(state: InsightsUiState): Map<String, Int> {
     }
     state.appliedActions.forEach { action -> action.packageName?.let { apps.putIfAbsent(it, -1) } }
     return apps
-}
-
-private fun openSettings(context: Context, spec: IntentSpec) {
-    val intent = Intent(spec.action)
-    spec.packageName?.let { intent.data = Uri.fromParts("package", it, null) }
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        // A settings page this build doesn't have: there is nothing to open, and nothing was changed.
-    }
 }
 
 /** What the body under the header shows. */
@@ -200,11 +207,11 @@ internal fun InsightsUiState.findingFor(key: String): InsightFindingState? =
 /**
  * Insights, stateless: [state] in, [onEvent] out. A header (title, Analyze now, last analysed time), then notices
  * (error, missing access, still learning), then the headline finding, key findings, what changed and applied fixes.
- * Without findings the body is a designed state: learning (n of 4 sessions), not analysed yet, error, or all good.
- * From 840 dp findings sit on the start and changes and fixes on the end. Apply always goes through the
- * confirmation dialog; [labels] names apps by package (missing while loading), [nowMs] dates the last analysis.
- * Until the first report arrives (not [InsightsUiState.loaded]) only the header shows, saying it's loading.
- * The ViewModel's held result shows as a snackbar and is consumed with [InsightsEvent.ResultShown] once it's gone.
+ * Without findings the body is a designed state: learning (n of [LEARNING_SESSIONS] sessions), not analysed yet,
+ * error, or all good. From 840 dp findings sit on the start and changes and fixes on the end. Apply always goes
+ * through the confirmation dialog; [labels] names apps by package (missing while loading), [nowMs] dates the last
+ * analysis. Until the first report arrives (not [InsightsUiState.loaded]) only the header shows, saying it's loading.
+ * The ViewModel's held result shows in [snackbar] and is consumed with [InsightsEvent.ResultShown] once it's gone.
  */
 @Composable
 fun InsightsContent(
@@ -214,11 +221,11 @@ fun InsightsContent(
     onEvent: (InsightsEvent) -> Unit,
     onOpenAccessSetup: () -> Unit,
     modifier: Modifier = Modifier,
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     val spacing = MaterialTheme.spacing
     val twoColumns = LocalWindowInfo.current.containerSize.width / LocalDensity.current.density >= TWO_COLUMN_MIN_WIDTH_DP
     val column = Arrangement.spacedBy(spacing.sm)
-    val snackbar = remember { SnackbarHostState() }
     // Analysis and feedback failures already stand as the error notice on screen: consumed without a snackbar.
     ResultSnackbar(snackbar, state.apply.lastResult, onEvent, silentCodes = silentResultCodes(state.error))
     val busy = state.apply.working
