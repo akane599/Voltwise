@@ -17,6 +17,91 @@ class RecommenderTest {
         FindingType.BACKGROUND_RADIO, FindingType.BACKGROUND_RUNAWAY, FindingType.LINGERING_FOREGROUND_SERVICE,
     )
 
+    @Test fun protectedAppsDoNotOfferPrivilegedActions() {
+        val input = inputs(emptyList(), emptyList())
+        val subjects = listOf(
+            Subject.App(1000, "android"),
+            Subject.App(1001, "com.android.phone"),
+            Subject.App(10050, "com.google.android.gms"),
+            Subject.App(9999, "com.example.system"),
+            Subject.App(110123, "com.example.otheruser"),
+            Subject.App(10123, "com.android.systemui"),
+            Subject.App(10123, "com.akane.voltwise"),
+            Subject.App(10123, "com.akane.voltwise.debug"),
+            Subject.App(10123, "com.akane.voltwise.preview"),
+            Subject.App(10123, "moe.shizuku.privileged.api"),
+        )
+        for (subject in subjects) {
+            for (type in appTypes) {
+                val recommendations = Recommender.recommend(finding(type, emptyList(), subject), input, 37)
+                    .recommendations
+                assertTrue(
+                    "$type $subject must not offer privileged actions",
+                    recommendations.none { it.requiresPrivilege },
+                )
+                assertEquals(
+                    "$type $subject keeps settings only for a valid package",
+                    if (subject.packageName == "android") emptyList() else listOf(ActionType.OPEN_APP_SETTINGS),
+                    recommendations.map { it.action },
+                )
+            }
+        }
+    }
+
+    @Test fun uidOnlySubjectsDoNotOfferAppActions() {
+        val input = inputs(emptyList(), emptyList())
+        for (subject in listOf(Subject.App(10123, "UID 10123"), Subject.App(1000, "System UID 1000"))) {
+            for (type in appTypes) {
+                val recommendations = Recommender.recommend(finding(type, emptyList(), subject), input, 37)
+                    .recommendations
+                assertTrue(
+                    "$type $subject must not offer privileged actions",
+                    recommendations.none { it.requiresPrivilege },
+                )
+                assertTrue(
+                    "$type $subject must not offer app settings",
+                    recommendations.none { it.action == ActionType.OPEN_APP_SETTINGS },
+                )
+            }
+        }
+    }
+
+    @Test fun ordinaryAppsKeepRestrictionsSettingsAndRunawayForceStop() {
+        val input = inputs(emptyList(), emptyList())
+        for (type in appTypes) {
+            val expected = listOf(ActionType.RESTRICT_BACKGROUND, ActionType.STANDBY_BUCKET_RESTRICTED) +
+                (if (type in listOf(FindingType.BACKGROUND_RUNAWAY, FindingType.LINGERING_FOREGROUND_SERVICE)) {
+                    listOf(ActionType.FORCE_STOP)
+                } else emptyList()) + ActionType.OPEN_APP_SETTINGS
+            val recommendations = Recommender.recommend(
+                finding(type, emptyList(), Subject.App(10123, "com.example.app")), input, 37,
+            ).recommendations
+            assertEquals("$type keeps supported app fixes", expected, recommendations.map { it.action })
+            assertTrue(recommendations.filter { it.action != ActionType.OPEN_APP_SETTINGS }.all { it.requiresPrivilege })
+            assertTrue(recommendations.filter { it.action == ActionType.OPEN_APP_SETTINGS }.none { it.requiresPrivilege })
+        }
+    }
+
+    @Test fun whitelistedProtectedAppDoesNotOfferRemovalOrOtherPrivilegedActions() {
+        val subject = Subject.App(10050, "com.google.android.gms")
+        val input = inputs(emptyList(), emptyList()).copy(dozeUserWhitelist = setOf(subject.packageName))
+        for (type in appTypes + FindingType.DOZE_WHITELISTED_DRAINER) {
+            val recommendations = Recommender.recommend(finding(type, emptyList(), subject), input, 37)
+                .recommendations
+            assertTrue(
+                "$type must not offer protected whitelist removal",
+                recommendations.none { it.action == ActionType.REMOVE_DOZE_WHITELIST },
+            )
+            assertTrue("$type must not offer privileged actions", recommendations.none { it.requiresPrivilege })
+            assertEquals(
+                if (type == FindingType.DOZE_WHITELISTED_DRAINER) {
+                    listOf(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS)
+                } else listOf(ActionType.OPEN_APP_SETTINGS),
+                recommendations.map { it.action },
+            )
+        }
+    }
+
     @Test fun backgroundRestrictionRequiresApi28() {
         val input = inputs(emptyList(), emptyList())
         for (type in appTypes) {
