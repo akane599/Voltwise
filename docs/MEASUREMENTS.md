@@ -98,7 +98,7 @@ Severity is HIGH when z ≥ 6 and MEDIUM otherwise. Confidence is HIGH with 12 o
 | Hot charging | At least 3 charge sessions in the last 14 days with a peak temperature of 40 °C or more |
 | Health decline | Local (non-imported) capacity estimates of MEDIUM or HIGH confidence in the last 90 days, reduced to medians at each timestamp: at least 6 points spanning at least 30 days, a continuity-corrected Mann–Kendall z ≤ −2.33 (one-sided nominal 1% threshold, without a value-tie variance correction), and an annualised Theil–Sen (median pairwise) change ≤ −3% per year. Variance uses AR(1) lag-1 variance inflation (1 + r₁)/(1 − r₁), with bias-corrected r₁ from time-ordered residuals of the Theil–Sen fit and median intercept: add (1 + 4r₁)/n to the observed correlation, then clamp to [0, 0.9]. Nonpositive corrected correlation or zero residual variance leaves variance unchanged. The AR(1) model and device-specific false-positive rates are not measured. |
 
-Pressing **Not a problem** on an app finding scales its floors and z threshold by 1.5 each time, up to 4×, and hides it; **Dismiss** hides it until it returns at a higher severity. A trend in the opposite direction is a separate finding and is not hidden by dismissing the earlier trend. A finding the next analysis no longer produces is resolved. Findings are ranked by severity, confidence, score and key, and a run keeps at most 12; the headline is the first one that is not INFO.
+Pressing **Not a problem** on an app finding scales its floors and z threshold by 1.5 each time, up to 4×, and hides it; **Dismiss** hides it until it returns at a higher severity. A trend in the opposite direction is a separate finding and is not hidden by dismissing the earlier trend. A finding the next analysis no longer produces is resolved, except that a DOZE_WHITELISTED_DRAINER finding remains ACTIVE while whitelist membership is unknown. For analysis selection, findings are ranked by severity, with INFO applied-fix effects first, then confidence, score and key; the engine selects at most 12. Publication shows every ACTIVE finding, so the report can contain more than 12; the headline is the first one that is not INFO.
 
 ### Trends
 
@@ -110,7 +110,7 @@ After a reversible fix is applied in the app (including one since undone; see [p
 
 ### Notification
 
-Insights has its own notification channel (low importance, so no sound). Voltwise posts at most one notice per 24 hours, and only for an active finding of HIGH severity with MEDIUM or HIGH confidence that differs from the one last announced. The text is generic and names no app, and tapping it opens the Insights tab. Dismissed and not-a-problem findings are never announced, and no notice is posted if notifications or the channel are blocked.
+Insights has its own notification channel (low importance, so no sound). Voltwise posts at most one notice per 24 hours, and only for an active finding of HIGH severity with MEDIUM or HIGH confidence whose key has not already been notified while it remains in the report. The text is generic and names no app, and tapping it opens the Insights tab. Dismissed and not-a-problem findings are never announced, and no notice is posted if notifications or the channel are blocked.
 
 ### What it cannot tell
 

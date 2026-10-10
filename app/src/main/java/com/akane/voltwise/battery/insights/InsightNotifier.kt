@@ -28,7 +28,7 @@ class InsightNotificationPolicy(private val store: KeyValueStore, private val no
     fun select(report: InsightReport): Finding? {
         val findings = listOfNotNull(report.headline) + report.findings
         val savedKeys = notifiedKeys()
-        // Prune even during cooldown; retaining only report keys bounds the set to 12 findings.
+        // Prune keys absent from the report even during cooldown; reports can exceed 12 findings.
         val notifiedKeys = savedKeys.intersect(findings.map { it.key }.toSet())
         if (notifiedKeys != savedKeys || store.getString(LAST_KEY) != null) {
             store.edit(mapOf(NOTIFIED_KEYS to Json.encodeToString(notifiedKeys), LAST_KEY to null))
