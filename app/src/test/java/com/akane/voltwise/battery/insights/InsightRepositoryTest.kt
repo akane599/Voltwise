@@ -80,7 +80,7 @@ class InsightRepositoryTest {
         var dayWindow: Pair<Long, Long>? = null
         var dailyRows = emptyList<DailySummary>()
         var currentZone: () -> ZoneId = { clockZone }
-        var dump: suspend () -> Unit = {}
+        var beforeSessions: suspend () -> Unit = {}
         var duringAnalysis: () -> Unit = {}
         var analyze: ((InsightInputs) -> InsightReport)? = null
         var appRows: List<SessionAppUsage>? = null
@@ -97,6 +97,7 @@ class InsightRepositoryTest {
         val sessionDao = object : UnusedSessionDao() {
             override suspend fun closedSessionsBetween(from: Long, to: Long): List<ChargeSession> {
                 events += "sessions"
+                beforeSessions()
                 window = from to to
                 return sessions
             }
@@ -119,7 +120,7 @@ class InsightRepositoryTest {
             }
         }
         fun repository(scope: TestScope) = InsightRepository(sessionDao, daily, apps, insights, scope.backgroundScope,
-            clock, { events += "whitelist"; whitelist }, { true }, { events += "dump"; dump() }, store,
+            clock, { events += "whitelist"; whitelist }, { true }, store,
             maintenance = maintenance,
             capacityReading = { 2_000_000L to 50 },
             highBatteryAlertEnabled = { highBatteryAlertEnabled },
@@ -584,19 +585,19 @@ class InsightRepositoryTest {
         val repo = fixture.repository(this)
         runCurrent()
         assertEquals(listOf(testFinding()), repo.report.value!!.findings)
-        val dumpGate = CompletableDeferred<Unit>()
-        fixture.dump = { dumpGate.await() }
-        val refresh = async { repo.refresh(liveDump = true) }
+        val inputGate = CompletableDeferred<Unit>()
+        fixture.beforeSessions = { inputGate.await() }
+        val refresh = async { repo.refresh() }
         try {
             runCurrent()
-            assertEquals(listOf("dump"), fixture.events)
+            assertEquals(listOf("sessions"), fixture.events)
             fixture.maintenance.clear({}, { fixture.insights.clearFindings() })
             runCurrent()
             assertFalse("Refresh must still be suspended", refresh.isCompleted)
             assertTrue("Clear must remove published findings before refresh returns",
                 repo.report.value!!.findings.isEmpty())
         } finally {
-            dumpGate.complete(Unit)
+            inputGate.complete(Unit)
         }
         refresh.await()
         assertTrue("Stale refresh must not repopulate cleared findings", fixture.insights.rows.value.isEmpty())
@@ -608,22 +609,22 @@ class InsightRepositoryTest {
         val fixture = Fixture()
         fixture.store.edit(mapOf(InsightRepository.LAST_ANALYZED_AT to "123"))
         fixture.insights.rows.value = listOf(FindingCodec.encode(testFinding(), 1))
-        val dumpGate = CompletableDeferred<Unit>()
-        fixture.dump = { dumpGate.await() }
+        val inputGate = CompletableDeferred<Unit>()
+        fixture.beforeSessions = { inputGate.await() }
         val repo = fixture.repository(this)
         assertNull(repo.report.value)
         // Acquire the analysis mutex before initialization or the first Room emission runs.
-        val refresh = async(start = CoroutineStart.UNDISPATCHED) { repo.refresh(liveDump = true) }
+        val refresh = async(start = CoroutineStart.UNDISPATCHED) { repo.refresh() }
         try {
             runCurrent()
-            assertEquals(listOf("dump"), fixture.events)
+            assertEquals(listOf("sessions"), fixture.events)
             assertFalse("Refresh must still be suspended", refresh.isCompleted)
             assertNotNull("Room must publish a report before refresh returns", repo.report.value)
             assertEquals(listOf(testFinding()), repo.report.value!!.findings)
             assertEquals("Initialization must load without waiting for analysis", 123L, repo.lastAnalyzedAt.value)
             assertEquals(123L, repo.report.value!!.generatedAtMs)
         } finally {
-            dumpGate.complete(Unit)
+            inputGate.complete(Unit)
         }
         refresh.await()
     }
@@ -747,33 +748,30 @@ class InsightRepositoryTest {
         assertEquals(1, fixture.insights.rows.value.size)
     }
 
-    @Test fun liveDumpRunsBeforeInputReadsAndOnlyRefreshesLiveState() = runTest {
+    @Test fun refreshBuildsInputsOnlyFromRecordedHistoryAndLiveAnalysisSettings() = runTest {
         val fixture = Fixture()
-        fixture.dump = { fixture.whitelist = setOf("new.whitelist") }
         val repo = fixture.repository(this)
-        repo.refresh(liveDump = true)
-        assertEquals("dump", fixture.events.first())
-        assertEquals(setOf("new.whitelist"), fixture.seen.single().dozeUserWhitelist)
+        repo.refresh()
+        assertEquals(listOf("sessions", "whitelist", "analyze"), fixture.events)
+        assertEquals(setOf("old.whitelist"), fixture.seen.single().dozeUserWhitelist)
         assertEquals(4_000_000L, fixture.seen.single().fullUah)
         assertTrue(fixture.seen.single().privileged)
         assertEquals(NOW - InsightInputsBuilder.HISTORY_MS to NOW, fixture.window)
         assertEquals(10L to 100L, fixture.dayWindow)
-        // Every snapshot/baseline write on the fake throws; Analyze now called none.
-        repo.refresh()
-        assertEquals(1, fixture.events.count { it == "dump" })
+        // Snapshot/baseline writes on the fake throw; analysis called none.
     }
 
-    @Test fun refreshesAndFeedbackAreSerializedAcrossSuspendingLiveDump() = runTest {
+    @Test fun refreshesAndFeedbackAreSerializedOnlyWhileAnalysisIsInProgress() = runTest {
         val fixture = Fixture()
         val gate = CompletableDeferred<Unit>()
-        fixture.dump = { gate.await() }
+        fixture.beforeSessions = { gate.await() }
         val repo = fixture.repository(this)
-        val first = async { repo.refresh(true) }
+        val first = async { repo.refresh() }
         runCurrent()
         val second = async { repo.refresh() }
         val feedback = async { repo.notAProblem(testFinding().key) }
         runCurrent()
-        assertEquals(listOf("dump"), fixture.events)
+        assertEquals(listOf("sessions"), fixture.events)
         assertFalse(second.isCompleted)
         assertFalse(feedback.isCompleted)
         gate.complete(Unit)
@@ -872,8 +870,8 @@ class InsightRepositoryTest {
         assertEquals(NOW.toString(), fixture.store.getString(InsightRepository.LAST_ANALYZED_AT))
         assertEquals(NOW, fixture.repository(this).awaitLastAnalyzedAt())
         fixture.now += 500
-        fixture.dump = { error("dump failed") }
-        try { repo.refresh(true); fail("Expected dump failure") } catch (_: IllegalStateException) { }
+        fixture.beforeSessions = { error("history read failed") }
+        try { repo.refresh(); fail("Expected history read failure") } catch (_: IllegalStateException) { }
         assertEquals(NOW, repo.lastAnalyzedAt.value)
         assertEquals(1, fixture.seen.size)
         assertEquals(1L, repo.successfulAnalysisRevision.value)
@@ -897,7 +895,7 @@ class InsightRepositoryTest {
         ) }
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repo = InsightRepository(fixture.sessionDao, fixture.daily, fixture.apps, fixture.insights,
-            backgroundScope, fixture.clock, { emptySet() }, { false }, {}, fixture.store,
+            backgroundScope, fixture.clock, { emptySet() }, { false }, fixture.store,
             maintenance = fixture.maintenance,
             ioDispatcher = dispatcher, analyzeDispatcher = dispatcher)
         repo.refresh()

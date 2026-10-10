@@ -994,6 +994,20 @@ class InsightActionRepositoryTest {
         assertEquals("EXECUTION_FAILED", failed.row().message)
     }
 
+    @Test fun failedAlertEnablerPropagatesBeforeAnyJournalInsert() = runTest {
+        val dao = Dao()
+        val failure = java.io.IOException("settings write failed")
+        val repo = InsightActionRepository(dao, { error("alert must not execute a shell action") }, Inspector(),
+            { 100L }, { throw failure })
+        try {
+            repo.apply(finding(Subject.Device), rec(ActionType.ENABLE_HIGH_BATTERY_ALERT))
+            fail("The enabler IOException must propagate")
+        } catch (actual: java.io.IOException) {
+            assertSame(failure, actual)
+        }
+        assertTrue("A failed enabler must not write a successful one-shot journal row", dao.rows.value.isEmpty())
+    }
+
     @Test fun manualSettingsAreNotJournaledAndAlertNeedsNoPrivilege() = runTest {
         val f = Fixture()
         assertEquals(ActionResult.OpenSettings(IntentSpec("android.settings.APPLICATION_DETAILS_SETTINGS", pkg)), f.apply(ActionType.OPEN_APP_SETTINGS))

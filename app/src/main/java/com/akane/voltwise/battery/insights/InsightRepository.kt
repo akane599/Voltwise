@@ -40,7 +40,6 @@ class InsightRepository(
     private val clock: Clock,
     private val dozeWhitelist: suspend () -> Set<String>?,
     private val privileged: () -> Boolean,
-    private val liveDump: suspend () -> Unit,
     private val store: KeyValueStore,
     private val maintenance: HistoryMaintenance,
     /** Latest charge counter and level, when available; FullCapacity also uses stored estimates. */
@@ -79,13 +78,12 @@ class InsightRepository(
         return lastAnalyzedAt.value
     }
 
-    suspend fun refresh(liveDump: Boolean = false) = mutex.withLock {
+    suspend fun refresh() = mutex.withLock {
         // Load before advancing the timestamp; initialization never waits for analysis.
         initialization.await()
         val generation = maintenance.generation
         if (maintenance.isClearing) return@withLock
         val inputs = withContext(ioDispatcher) {
-            if (liveDump) this@InsightRepository.liveDump()
             val now = clock.millis()
             val zone = currentZone()
             val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toEpochDay()

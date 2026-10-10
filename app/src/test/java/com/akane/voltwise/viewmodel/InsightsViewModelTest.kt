@@ -69,7 +69,6 @@ class InsightsViewModelTest {
                 rows.value = rows.value.map { if (it.key == key) it.copy(status = status) else it }
             }
         }
-        var dumps = 0
         val insights = InsightRepository(
             sessionDao,
             object : UnusedDailySummaryDao() { override suspend fun range(fromDay: Long, toDay: Long) = emptyList<DailySummary>() },
@@ -78,7 +77,7 @@ class InsightsViewModelTest {
                 override suspend fun sessionWakers(sessionIds: List<String>) = emptyList<SessionDeviceWaker>()
             },
             dao, backgroundScope, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC),
-            { null }, { true }, { dumps++ }, FakeKeyValueStore(),
+            { null }, { true }, FakeKeyValueStore(),
             maintenance = HistoryMaintenance(),
             ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
             analyze = { InsightReport(it.nowMs, listOf(insightFinding()), insightFinding()) },
@@ -95,7 +94,6 @@ class InsightsViewModelTest {
         val adapter = DefaultInsightsRepository(insights, journal, shell, sessionDao, { now })
         assertSame(insights.report, adapter.report)
         assertEquals(1, adapter.eligibleSessionCount.first())
-        assertEquals(0, dumps)
         assertEquals("constructing the adapter must not probe", 0, probes)
         assertEquals("collecting privilege must discover cold-start Shizuku after unknown", listOf(null, true), adapter.privileged.take(2).toList())
         assertEquals(1, probes)
@@ -107,7 +105,6 @@ class InsightsViewModelTest {
             assertEquals(next == ShellRunner.Mode.ROOT || next == ShellRunner.Mode.SHIZUKU, adapter.privileged.first { it != null })
         }
         adapter.analyzeNow()
-        assertEquals(1, dumps)
         assertEquals(now, adapter.lastAnalyzedAt.first())
         assertEquals("finding", adapter.report.value?.findings?.single()?.key)
         val manual = insightFinding().recommendations.last()
@@ -126,7 +123,7 @@ class InsightsViewModelTest {
 
     private suspend fun TestScope.assertClockIndependentRecovery(recoveryAt: Long) {
         var now = 100L
-        var failDump = false
+        var failAnalysis = false
         val sessions = object : UnusedSessionDao() {
             override fun filteredSessions(type: SessionType?, query: String, limit: Int) = flowOf(emptyList<ChargeSession>())
             override suspend fun closedSessionsBetween(from: Long, to: Long) = emptyList<ChargeSession>()
@@ -152,9 +149,12 @@ class InsightsViewModelTest {
                 override suspend fun usageRowsForSessions(sessionIds: List<String>) = emptyList<SessionAppUsage>()
                 override suspend fun sessionWakers(sessionIds: List<String>) = emptyList<SessionDeviceWaker>()
             },
-            dao, backgroundScope, clock, { null }, { false }, { if (failDump) error("dump failed") },
+            dao, backgroundScope, clock, { null }, { false },
             FakeKeyValueStore(), maintenance = HistoryMaintenance(), ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
-            analyze = { InsightReport(it.nowMs, listOf(insightFinding()), insightFinding()) },
+            analyze = {
+                if (failAnalysis) error("analysis failed")
+                InsightReport(it.nowMs, listOf(insightFinding()), insightFinding())
+            },
         )
         val journal = InsightActionRepository(dao, { error("unexpected action") }, object : TargetInspector {
             override val sdkInt = 37
@@ -173,12 +173,14 @@ class InsightsViewModelTest {
         backgroundScope.launch { vm.state.collect {} }
         runCurrent()
         assertEquals(100L, vm.state.value.lastAnalyzedAt)
-        failDump = true
+        failAnalysis = true
         vm.onEvent(InsightsEvent.AnalyzeNow)
-        runCurrent()
+        // Access re-probing uses the real IO dispatcher; await the observed failure, not scheduler timing.
+        vm.state.first { it.error == InsightMessageCode.ANALYSIS_FAILED }
         assertEquals(InsightMessageCode.ANALYSIS_FAILED, vm.state.value.error)
         assertEquals(InsightMessageCode.ANALYSIS_FAILED, results.latest.value?.code)
 
+        failAnalysis = false
         now = recoveryAt
         insights.refresh()
         runCurrent()
