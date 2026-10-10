@@ -100,7 +100,7 @@ class InsightStopWiringTest {
                 override suspend fun sessionWakers(sessionIds: List<String>) = emptyList<com.akane.voltwise.battery.data.db.SessionDeviceWaker>()
             },
             insightDao, backgroundScope, Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC),
-            { emptySet() }, { false }, { fail("Stop must not request a privileged dump") },
+            { emptySet() }, { false },
             FakeKeyValueStore(), maintenance, capacityReading = { 2_000_000L to 50 },
             ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
             analyze = { InsightEngine.analyze(it, 35) },

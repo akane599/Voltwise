@@ -6,13 +6,10 @@ import android.provider.Settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
-import com.akane.voltwise.battery.actions.ActionReadback
-import com.akane.voltwise.battery.actions.PrivilegedCommand
-import com.akane.voltwise.battery.actions.Readback
-import com.akane.voltwise.battery.actions.WhitelistKind
 import com.akane.voltwise.battery.insights.InsightNotificationPolicy
 import com.akane.voltwise.battery.insights.InsightNotifier
 import com.akane.voltwise.battery.insights.InsightRepository
+import com.akane.voltwise.battery.insights.readUserDozeWhitelist
 import com.akane.voltwise.battery.insights.actions.ActionExecutor
 import com.akane.voltwise.battery.insights.actions.InsightActionRepository
 import com.akane.voltwise.battery.insights.actions.PackageManagerTargetInspector
@@ -184,33 +181,20 @@ val appModule = module {
     single {
         InsightActionRepository(
             get(), get(), get(), System::currentTimeMillis,
-            alertEnabler = { get<SettingsRepository<AppSettings>>().set("highBatteryAlertEnabled", true) },
+            alertEnabler = { get<SettingsRepository<AppSettings>>().set(AppSettings::highBatteryAlertEnabled.name, true) },
         )
     }
     single {
         val database = get<BatteryDatabase>()
         val shell = get<ShellRunner>()
-        val stats = get<AppStatsRepository>()
         val battery = get<BatteryRepository>()
         val preferences = androidContext().getSharedPreferences("insights", Context.MODE_PRIVATE)
         InsightRepository(
             database.sessionDao(), database.dailySummaryDao(), database.appUsageDao(), get(),
             get(), Clock.systemDefaultZone(),
             currentZone = ZoneId::systemDefault,
-            dozeWhitelist = {
-                val mode = shell.detectMode()
-                if (mode == ShellRunner.Mode.SHIZUKU || mode == ShellRunner.Mode.ROOT) {
-                    val outcome = shell.execAction(PrivilegedCommand.ListDozeWhitelist)
-                    val readback = (outcome as? ShellRunner.Outcome.Success)?.let { ActionReadback.dozeWhitelist(it.output) }
-                    when (readback) {
-                        is Readback.Recognized -> readback.value.filter { it.kind == WhitelistKind.USER }
-                            .map { it.packageName }.toSet()
-                        else -> null
-                    }
-                } else null
-            },
+            dozeWhitelist = { readUserDozeWhitelist(shell) },
             privileged = { shell.access.value == ShellRunner.Mode.SHIZUKU || shell.access.value == ShellRunner.Mode.ROOT },
-            liveDump = { stats.snapshot(force = true) },
             store = SharedPreferencesStore(preferences),
             maintenance = get(),
             capacityReading = {

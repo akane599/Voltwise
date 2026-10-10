@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -348,6 +349,98 @@ class DefaultInsightsRepositoryTest {
         assertEquals("revocation must publish false, not another loading state", listOf(true, false), collection.await())
     }
 
+    @Test fun analyzeNowReprobesWithoutDumpAndUsesTheSameRecordedInputsAsRefresh() = runTest {
+        val fixture = AnalysisFixture(this)
+        fixture.output = emptyList()
+        fixture.shell.detectMode()
+        fixture.insights.refresh()
+        fixture.adapter.analyzeNow()
+        assertTrue("Analyze now must not issue BatteryStatsBinaryOutput or refresh the Apps cache", fixture.commands.isEmpty())
+        assertEquals("Analyze now must force a fresh probe even within the mode-cache TTL", 2, fixture.probes)
+        assertEquals("Analyze now must use the same InputsBuilder history, capacity, whitelist and settings", fixture.seen[0], fixture.seen[1])
+        assertEquals("local", fixture.seen[1].sessions.single().id)
+        assertEquals(10.0, fixture.seen[1].appSessions.single().powerMah!!, 0.0)
+        assertEquals(setOf("com.example.app"), fixture.seen[1].dozeUserWhitelist)
+        assertEquals(4_000_000L, fixture.seen[1].fullUah)
+        assertTrue(fixture.seen[1].highBatteryAlertEnabled)
+        assertTrue(fixture.seen[1].privileged)
+    }
+
+    @Test fun feedbackDoesNotWaitForAnalyzeNowAccessProbe() = runTest {
+        val fixture = AnalysisFixture(this)
+        fixture.insights.refresh()
+        fixture.probeGate = CompletableDeferred()
+        val refresh = async { fixture.adapter.analyzeNow() }
+        fixture.probeStarted.await()
+        val feedback = async { fixture.adapter.notAProblem(insightFinding().key) }
+        runCurrent()
+        try {
+            assertTrue("Feedback must not wait for an access probe outside analysis", feedback.isCompleted)
+            assertFalse(refresh.isCompleted)
+            assertEquals(1.5, fixture.rows.value.single().feedbackMultiplier, 0.0)
+        } finally {
+            fixture.probeGate!!.complete(Unit)
+        }
+        feedback.await()
+        refresh.await()
+    }
+
+    private class AnalysisFixture(scope: TestScope) {
+        val commands = mutableListOf<String>()
+        var probes = 0
+        var probeGate: CompletableDeferred<Unit>? = null
+        val probeStarted = CompletableDeferred<Unit>()
+        val shell = ShellRunner(
+            probeMode = {
+                probes++
+                probeGate?.let { probeStarted.complete(Unit); it.await() }
+                ShellRunner.Mode.SHIZUKU
+            },
+            runShizuku = { command, _, _ ->
+                commands += command
+                com.akane.voltwise.battery.shizuku.ShizukuBridge.RunResult.Success("garbage")
+            }, shizukuRunning = { true }, elapsedMs = { 0L },
+        )
+        val rows = kotlinx.coroutines.flow.MutableStateFlow<List<InsightFindingEntity>>(emptyList())
+        var output = listOf(insightFinding())
+        val seen = mutableListOf<com.akane.voltwise.battery.insights.model.InsightInputs>()
+        private val dao = object : UnusedInsightDao() {
+            override fun findings() = rows
+            override suspend fun findingsOnce() = rows.value
+            override suspend fun upsertFindings(list: List<InsightFindingEntity>) { rows.value = list }
+            override fun actions() = flowOf(emptyList<InsightActionEntity>())
+            override suspend fun actionsOnce() = emptyList<InsightActionEntity>()
+        }
+        private val sessions = object : UnusedSessionDao() {
+            override fun filteredSessions(type: SessionType?, query: String, limit: Int) = flowOf(emptyList<ChargeSession>())
+            override suspend fun closedSessionsBetween(from: Long, to: Long) = listOf(com.akane.voltwise.battery.insights.testSession())
+            override fun capacityEstimates(limit: Int) = flowOf(emptyList<com.akane.voltwise.battery.data.db.CapacityEstimateRow>())
+        }
+        private val dispatcher = StandardTestDispatcher(scope.testScheduler)
+        val insights = InsightRepository(
+            sessions, object : UnusedDailySummaryDao() {
+                override suspend fun range(fromDay: Long, toDay: Long) = emptyList<com.akane.voltwise.battery.data.db.DailySummary>()
+            }, object : UnusedAppUsageDao() {
+                override suspend fun usageRowsForSessions(sessionIds: List<String>) = listOf(com.akane.voltwise.battery.insights.testAppRow())
+                override suspend fun sessionWakers(sessionIds: List<String>) = emptyList<com.akane.voltwise.battery.data.db.SessionDeviceWaker>()
+            }, dao, scope.backgroundScope,
+            Clock.fixed(java.time.Instant.ofEpochMilli(com.akane.voltwise.battery.insights.NOW), java.time.ZoneOffset.UTC),
+            { shell.detectMode(); setOf("com.example.app") },
+            { shell.access.value == ShellRunner.Mode.SHIZUKU }, FakeKeyValueStore(),
+            maintenance = HistoryMaintenance(), capacityReading = { 2_000_000L to 50 },
+            ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
+            highBatteryAlertEnabled = { true },
+            analyze = { seen += it; InsightReport(it.nowMs, output, output.firstOrNull()) },
+        )
+        private val actions = InsightActionRepository(dao, { error("unexpected action") }, object : TargetInspector {
+            override val sdkInt = 37
+            override fun installedUid(pkg: String, userId: Int): Int? = error("unexpected inspection")
+            override fun packagesForUid(uid: Int): List<String> = error("unexpected inspection")
+            override fun roleHolders(): Set<String> = error("unexpected inspection")
+        }, { 100L }, {})
+        val adapter = DefaultInsightsRepository(insights, actions, shell, sessions)
+    }
+
     private fun TestScope.repository(shell: ShellRunner): DefaultInsightsRepository {
         val sessions = object : UnusedSessionDao() {
             override fun filteredSessions(type: SessionType?, query: String, limit: Int) = flowOf(emptyList<ChargeSession>())
@@ -360,7 +453,7 @@ class DefaultInsightsRepositoryTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val insights = InsightRepository(
             sessions, UnusedDailySummaryDao(), UnusedAppUsageDao(), dao,
-            backgroundScope, Clock.systemUTC(), { null }, { false }, {}, FakeKeyValueStore(),
+            backgroundScope, Clock.systemUTC(), { null }, { false }, FakeKeyValueStore(),
             maintenance = HistoryMaintenance(), ioDispatcher = dispatcher, analyzeDispatcher = dispatcher,
         )
         val actions = InsightActionRepository(dao, { error("observation must not execute") }, object : TargetInspector {

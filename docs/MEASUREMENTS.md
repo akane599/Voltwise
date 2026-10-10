@@ -59,7 +59,7 @@ Design capacity is the Settings override (mAh; 0 = automatic) when set, otherwis
 
 ## Insights
 
-The Insights tab (and the Insights card on Now and the Findings list on an app's details) is an analysis of Voltwise's own recorded history. It looks for apps and device behaviour that drain more than that device's usual, shows the numbers behind each finding, and suggests fixes. It is a set of fixed rules over robust statistics, not a model, and every finding is an observation about this device's recent sessions rather than a diagnosis. Findings are recomputed after each finalized session, once at app start if the last analysis is more than six hours old, and on **Analyze now**, which first takes a fresh per-app dump; only the last 90 days of closed sessions and daily summaries are read.
+The Insights tab (and the Insights card on Now and the Findings list on an app's details) is an analysis of Voltwise's own recorded history. It looks for apps and device behaviour that drain more than that device's usual, shows the numbers behind each finding, and suggests fixes. It is a set of fixed rules over robust statistics, not a model, and every finding is an observation about this device's recent sessions rather than a diagnosis. Findings are recomputed after each finalized session, once at app start if the last analysis is more than six hours old, and on **Analyze now**, which first rechecks privileged access without taking a per-app dump; only the last 90 days of closed sessions and daily summaries are read.
 
 ### Data used
 

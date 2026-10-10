@@ -37,7 +37,7 @@ interface InsightsRepository {
 class DefaultInsightsRepository(
     private val insights: InsightRepository,
     private val actionRepository: InsightActionRepository,
-    shellRunner: ShellRunner,
+    private val shellRunner: ShellRunner,
     sessionDao: SessionDao,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : InsightsRepository {
@@ -60,7 +60,10 @@ class DefaultInsightsRepository(
         )
         AppWindows.select(inputs).size
     }.flowOn(Dispatchers.Default)
-    override suspend fun analyzeNow() = insights.refresh(liveDump = true)
+    override suspend fun analyzeNow() {
+        shellRunner.detectMode(forceRefresh = true)
+        insights.refresh()
+    }
     override suspend fun dismiss(key: String) = insights.dismiss(key)
     override suspend fun notAProblem(key: String) = insights.notAProblem(key)
     override suspend fun apply(finding: Finding, recommendation: Recommendation) = actionRepository.apply(finding, recommendation)
