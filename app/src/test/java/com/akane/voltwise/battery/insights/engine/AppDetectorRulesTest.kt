@@ -15,6 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.random.Random
 
 class AppDetectorRulesTest {
     private fun context(input: InsightInputs) = AppContext(input, AppWindows.select(input), Subject.App(UID, APP))
@@ -62,6 +63,66 @@ class AppDetectorRulesTest {
         val application = input.copy(appSessions = input.appSessions.map { it.copy(uid = 10123) })
         assertEquals(1, appFindings(application).count { it.type == FindingType.BACKGROUND_RADIO })
         assertTrue(appFindings(input).any { it.type == FindingType.APP_DRAIN_ANOMALY })
+    }
+
+    @Test fun systemUidsWithZeroForegroundDoNotProduceBackgroundFindings() {
+        for (type in listOf(FindingType.BACKGROUND_RADIO, FindingType.BACKGROUND_LOCATION,
+            FindingType.LINGERING_FOREGROUND_SERVICE)) {
+            val input = detectorInputs(type).let { input ->
+                input.copy(appSessions = input.appSessions.map { it.copy(uid = 10123, fgMs = 0, topMs = 0, gpsMs = 0) })
+            }
+            val application = appFindings(input).single { it.type == type }
+            if (type == FindingType.BACKGROUND_LOCATION) {
+                assertEquals("Exercise the sensor fallback, not GPS", Metric.SENSOR_MS_PER_H, application.evidence.first().metric)
+            }
+            for (uid in listOf(1000, 1001)) {
+                val system = input.copy(appSessions = input.appSessions.map { it.copy(uid = uid) })
+                assertTrue("UID $uid with zero foreground cannot establish $type",
+                    appFindings(system).none { it.type == type })
+                assertTrue("Power-only findings remain supported",
+                    appFindings(system).any { it.type == FindingType.APP_DRAIN_ANOMALY })
+            }
+        }
+    }
+
+    @Test fun seededStationaryZeroForegroundStaysSilentAndAppSpikesRemainDetectable() {
+        val trials = 50
+        for ((mode, seed) in listOf("flat" to 3580, "noisy" to 3581, "AR1" to 3582)) {
+            val random = Random(seed)
+            for (type in listOf(FindingType.BACKGROUND_RADIO, FindingType.BACKGROUND_LOCATION,
+                FindingType.LINGERING_FOREGROUND_SERVICE)) {
+                var systemFindings = 0
+                var stationaryAppFindings = 0
+                var appSpikes = 0
+                repeat(trials) {
+                    var noise = 0.0
+                    val template = detectorInputs(type)
+                    val stationary = template.copy(appSessions = template.appSessions.map { row ->
+                        noise = when (mode) {
+                            "flat" -> 0.0
+                            "noisy" -> random.nextDouble(-10_000.0, 10_000.0)
+                            else -> 0.8 * noise + random.nextDouble(-5_000.0, 5_000.0)
+                        }
+                        val activity = (60_000 + noise).toLong()
+                        row.copy(uid = 10123, fgMs = 0, topMs = 0, gpsMs = 0,
+                            sensorMs = activity, mobileActiveMs = activity, fgServiceMs = activity)
+                    })
+                    val spike = stationary.copy(appSessions = stationary.appSessions.mapIndexed { index, row ->
+                        if (index < 4) row else row.copy(sensorMs = 1_000_000, mobileActiveMs = 1_000_000,
+                            fgServiceMs = 1_800_000)
+                    })
+                    if (appFindings(stationary).any { it.type == type }) stationaryAppFindings++
+                    if (appFindings(spike).any { it.type == type }) appSpikes++
+                    val system = spike.copy(appSessions = spike.appSessions.map { it.copy(uid = 1000) })
+                    if (appFindings(system).any { it.type == type }) systemFindings++
+                }
+                println("$type $mode: $stationaryAppFindings/$trials stationary app findings, " +
+                    "$systemFindings/$trials system findings (bound 0), $appSpikes/$trials app spikes (seed $seed)")
+                assertEquals(0, stationaryAppFindings)
+                assertEquals(0, systemFindings)
+                assertEquals(trials, appSpikes)
+            }
+        }
     }
 
     @Test fun foregroundActivityDisqualifiesLocationRadioAndLingeringService() {

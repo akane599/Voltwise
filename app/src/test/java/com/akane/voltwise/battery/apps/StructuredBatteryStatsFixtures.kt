@@ -20,6 +20,8 @@ internal object StructuredBatteryStatsFixtures {
         val jobName: String? = null,
         val jobs: Long = 0,
         val jobMs: Long = 0,
+        val topMs: Long? = null,
+        val sensorMs: Long = 0,
     )
 
     fun dump(
@@ -50,6 +52,15 @@ internal object StructuredBatteryStatsFixtures {
                 number(UID_ID, uid.id.toLong())
                 nested(UID_PACKAGE) { string(PACKAGE_NAME, uid.packageName) }
                 uid.power?.let { nested(UID_POWER) { double(POWER_COMPUTED_MAH, it) } }
+                // No foreground timer (UidProto field 11): AOSP omits it when zero.
+                uid.topMs?.let { top -> nested(UID_PROCESS_STATE) {
+                    number(PROCESS_STATE_KIND, 0) // TOP; the producer also omits scalar zero.
+                    number(PROCESS_STATE_DURATION_MS, top)
+                } }
+                if (uid.sensorMs > 0) nested(UID_SENSOR) {
+                    number(SENSOR_HANDLE, 1)
+                    nested(SENSOR_TOTAL_TIMER) { number(TIMER_DURATION_MS, uid.sensorMs); number(TIMER_COUNT, 1) }
+                }
                 nested(UID_ALARM) { string(ALARM_NAME, uid.alarmName); number(ALARM_COUNT, uid.alarms) }
                 uid.jobName?.let { name -> nested(UID_JOB) {
                     string(JOB_NAME_FIELD, name)
@@ -78,6 +89,12 @@ internal object StructuredBatteryStatsFixtures {
     private const val UID_PACKAGE = 2
     private const val UID_JOB = 15
     private const val UID_POWER = 18
+    private const val UID_PROCESS_STATE = 20
+    private const val UID_SENSOR = 21
+    private const val PROCESS_STATE_KIND = 1
+    private const val PROCESS_STATE_DURATION_MS = 2
+    private const val SENSOR_HANDLE = 1
+    private const val SENSOR_TOTAL_TIMER = 2
     private const val UID_ALARM = 26
     private const val PACKAGE_NAME = 1
     private const val POWER_COMPUTED_MAH = 1

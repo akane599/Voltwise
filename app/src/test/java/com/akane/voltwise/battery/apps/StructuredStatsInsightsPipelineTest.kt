@@ -168,6 +168,36 @@ class StructuredStatsInsightsPipelineTest {
         })
     }
 
+    @Test fun protoOmittedForegroundDoesNotTurnSystemSensorActivityIntoBackgroundLocation() = runTest {
+        // Identical producer data: four 1 min/h sensor windows, then a 10 min/h spike.
+        for (uid in listOf(10123, 1000)) {
+            val pipeline = collectWindows("job", "alarm", currentVictimAlarms = 0,
+                baselineVictimAlarms = 0, historicalVictimAlarms = 0, victimUid = uid,
+                historicalVictimSensorMs = 120_000, currentVictimSensorMs = 1_200_000)
+            val windows = AppWindows.select(pipeline.inputs)
+            assertEquals(5, windows.size)
+            assertTrue(pipeline.captures.all { it.appMeasurementsComplete })
+            val rows = pipeline.store.rows.filter { it.uid == uid }
+            assertEquals(5, rows.size)
+            assertTrue("Proto absence stays measured zero in storage", rows.all { it.foregroundTimeMs == 0L && it.topMs == 0L })
+            assertEquals(1_200_000L, rows.last().sensorMs)
+            assertEquals(5, pipeline.inputs.appSessions.count { it.uid == uid })
+            val findings = InsightEngine.analyze(pipeline.inputs, 36).findings.filter {
+                (it.subject as? Subject.App)?.uid == uid
+            }
+            if (uid == 10123) {
+                val finding = findings.single { it.type == FindingType.BACKGROUND_LOCATION }
+                assertEquals(Metric.SENSOR_MS_PER_H, finding.evidence.first().metric)
+                // Collector debounce makes the capture span slightly shorter than the session span.
+                assertEquals(120_000.0 / windows.first().hours, finding.evidence.first().baseline!!, 1e-9)
+                assertEquals(1_200_000.0 / windows.last().hours, finding.evidence.first().observed, 1e-9)
+            } else {
+                assertTrue("UID $uid with an omitted foreground timer must not get a background location/radio finding",
+                    findings.none { it.type == FindingType.BACKGROUND_LOCATION || it.type == FindingType.BACKGROUND_RADIO })
+            }
+        }
+    }
+
     private data class Pipeline(
         val store: Store,
         val inputs: InsightInputs,
@@ -187,6 +217,9 @@ class StructuredStatsInsightsPipelineTest {
         historicalBaselineVictimJobs: Long = baselineVictimJobs,
         historicalVictimJobs: Long = 0,
         currentVictimJobs: Long = 0,
+        victimUid: Int = VICTIM_UID,
+        historicalVictimSensorMs: Long = 0,
+        currentVictimSensorMs: Long = 0,
     ): Pipeline {
         val store = Store()
         val captures = mutableListOf<BatteryStatsParser.FullSnapshot>()
@@ -227,14 +260,17 @@ class StructuredStatsInsightsPipelineTest {
                     uids = listOf(
                         StructuredBatteryStatsFixtures.Uid(ATTACKER_UID, "attacker.app", if (end) 2.5 else 1.5,
                             alarmName, if (end) 1 else 0, jobName, if (end) 1 else 0, if (end) 10 else 0),
-                        StructuredBatteryStatsFixtures.Uid(VICTIM_UID, "victim.app",
+                        StructuredBatteryStatsFixtures.Uid(victimUid, "victim.app",
                             if (!end && omittedVictimBaselinePower) null else
                                 if (end && invalidLastPower && index == 4) Double.NaN else if (end) 2.0 else 1.0,
                             "victim real alarm", baselineVictimAlarms + if (end) {
                                 if (index == 4) currentVictimAlarms else historicalVictimAlarms
                             } else 0,
                             jobName.takeIf { baselineVictimJobs > 0 || historicalVictimJobs > 0 || currentVictimJobs > 0 },
-                            victimJobs, victimJobs * 10),
+                            victimJobs, victimJobs * 10, topMs = 0,
+                            sensorMs = if (end) {
+                                if (index == 4) currentVictimSensorMs else historicalVictimSensorMs
+                            } else 0),
                     ),
                 )
             }
