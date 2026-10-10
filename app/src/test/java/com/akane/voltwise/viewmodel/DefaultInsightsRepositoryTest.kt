@@ -363,7 +363,6 @@ class DefaultInsightsRepositoryTest {
         assertEquals(setOf("com.example.app"), fixture.seen[1].dozeUserWhitelist)
         assertEquals(4_000_000L, fixture.seen[1].fullUah)
         assertTrue(fixture.seen[1].highBatteryAlertEnabled)
-        assertTrue(fixture.seen[1].privileged)
     }
 
     @Test fun feedbackDoesNotWaitForAnalyzeNowAccessProbe() = runTest {

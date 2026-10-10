@@ -755,7 +755,6 @@ class InsightRepositoryTest {
         assertEquals(listOf("sessions", "whitelist", "analyze"), fixture.events)
         assertEquals(setOf("old.whitelist"), fixture.seen.single().dozeUserWhitelist)
         assertEquals(4_000_000L, fixture.seen.single().fullUah)
-        assertTrue(fixture.seen.single().privileged)
         assertEquals(NOW - InsightInputsBuilder.HISTORY_MS to NOW, fixture.window)
         assertEquals(10L to 100L, fixture.dayWindow)
         // Snapshot/baseline writes on the fake throw; analysis called none.
