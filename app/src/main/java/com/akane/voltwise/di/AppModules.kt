@@ -119,7 +119,11 @@ val appModule = module {
     single { AppInfoRepository(androidContext()) } bind AppInfoSource::class
     single<SessionSnapshotStore> { RoomSessionSnapshotStore(get()) }
     // Started and stopped by BatteryMonitorService.
-    single { SessionSnapshotCollector(get(), get(), get<BatteryRepository>().powerTransitions) }
+    single {
+        SessionSnapshotCollector(
+            get(), get(), get<BatteryRepository>().powerTransitions, onDiagnostic = get<DiagnosticStore>()::record,
+        )
+    }
 
     single<SettingsRepository<AppSettings>> {
         SettingsRepository(dataStore = get(), schema = AppSettingsSchema)

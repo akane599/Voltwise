@@ -6,6 +6,7 @@ import com.akane.voltwise.battery.apps.SessionSnapshotCollector.Companion.STARTU
 import com.akane.voltwise.battery.apps.SessionSnapshotCollector.Companion.SWEEP_DEBOUNCE_MS
 import com.akane.voltwise.battery.data.PowerTransition
 import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.diagnostics.DiagnosticCode
 import com.akane.voltwise.battery.measurement.PowerState
 import com.akane.voltwise.battery.util.BatteryStatsParser
 import kotlinx.coroutines.CompletableDeferred
@@ -103,8 +104,11 @@ class SessionSnapshotCollectorTest {
     private val store = FakeStore()
     private val transitions = MutableSharedFlow<PowerTransition>(extraBufferCapacity = 16)
     private val warnings = mutableListOf<String>()
+    private val diagnostics = mutableListOf<DiagnosticCode>()
 
-    private val collector = SessionSnapshotCollector(stats, store, transitions, log = {}, warn = { warnings += it })
+    private val collector = SessionSnapshotCollector(
+        stats, store, transitions, log = {}, warn = { warnings += it }, onDiagnostic = { diagnostics += it },
+    )
     private fun TestScope.start() {
         backgroundScope.launch { collector.run() }
         runCurrent()
@@ -137,6 +141,63 @@ class SessionSnapshotCollectorTest {
     private fun ready(windowStart: Long, vararg power: Pair<Int, Double>) = AppStatsResult.Ready(full(windowStart, *power))
 
     private fun baseline(windowStart: Long, vararg power: Pair<Int, Double>) = full(windowStart, *power).toAppUsageSnapshot()
+
+    @Test fun incompleteBaselineRecordsAdvancedIncompleteOnceAndSavesNoBaseline() = runTest {
+        assertIncompleteBaseline(full(100, 1 to 1.0).copy(appMeasurementsComplete = false))
+    }
+
+    @Test fun rejectedPowerBaselineRecordsAdvancedIncompleteOnceAndSavesNoBaseline() = runTest {
+        assertIncompleteBaseline(full(100, 1 to 1.0).copy(rejectedAppPowerRecords = 1))
+    }
+
+    private suspend fun TestScope.assertIncompleteBaseline(snapshot: BatteryStatsParser.FullSnapshot) {
+        store.openDischarge("A")
+        stats.results += AppStatsResult.Ready(snapshot)
+        start()
+        advance(BASELINE_DEBOUNCE_MS)
+        assertEquals(listOf(true), stats.calls)
+        assertTrue("Incomplete measurements must not become a baseline", store.baselines.isEmpty())
+        assertEquals("Records ADVANCED_INCOMPLETE once for the baseline skip",
+            listOf(DiagnosticCode.ADVANCED_INCOMPLETE), diagnostics)
+        advance(10 * BASELINE_DEBOUNCE_MS)
+        assertEquals("No duplicate diagnostic without another dump", 1, diagnostics.size)
+    }
+
+    @Test fun incompleteEndRecordsAdvancedIncompleteAndStoresNoCaptureStart() = runTest {
+        assertIncompleteEnd(full(100, 1 to 3.0).copy(capturedAt = 2_000, appMeasurementsComplete = false))
+    }
+
+    @Test fun rejectedPowerEndRecordsAdvancedIncompleteAndStoresNoCaptureStart() = runTest {
+        assertIncompleteEnd(full(100, 1 to 3.0).copy(capturedAt = 2_000, rejectedAppPowerRecords = 1))
+    }
+
+    private suspend fun TestScope.assertIncompleteEnd(snapshot: BatteryStatsParser.FullSnapshot) {
+        store.openDischarge("A")
+        store.baselines["A"] = baseline(100, 1 to 1.0)
+        stats.results += AppStatsResult.Ready(snapshot)
+        start()
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+        assertEquals(AppUsageStatus.READY, store.status("A"))
+        assertNotNull("Accepted end evidence is retained", store.ends["A"])
+        assertEquals(null to 2_000L, store.captureWindows["A"])
+        assertEquals("Records ADVANCED_INCOMPLETE once for the non-comparable END",
+            listOf(DiagnosticCode.ADVANCED_INCOMPLETE), diagnostics)
+    }
+
+    @Test fun completeBaselineAndEndRecordNoDiagnosticsAndKeepComparableCapture() = runTest {
+        store.openDischarge("A")
+        stats.results += ready(100, 1 to 1.0)
+        start()
+        advance(BASELINE_DEBOUNCE_MS)
+        assertNotNull(store.baselines["A"])
+        assertTrue("Complete baseline records no diagnostic", diagnostics.isEmpty())
+        stats.results += AppStatsResult.Ready(full(100, 1 to 3.0).copy(capturedAt = 2_000))
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+        assertEquals(1_000L to 2_000L, store.captureWindows["A"])
+        assertTrue("Complete END records no diagnostic", diagnostics.isEmpty())
+    }
 
     @Test fun plugInWaitsTenSecondsThenStoresTheEndAndTheDelta() = runTest {
         store.openDischarge("A")
