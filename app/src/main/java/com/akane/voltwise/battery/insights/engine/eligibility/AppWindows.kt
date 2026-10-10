@@ -136,12 +136,12 @@ object AppWindows {
 
     fun foregroundMs(row: AppSessionInput): Double? {
         val top = row.topMs?.takeIf { it >= 0 } ?: return null
-        // A known process-state (st) timer makes an absent sparse foreground (fg) timer an observed zero
-        // only for application UIDs. System/native UIDs can be foreground in non-TOP states we don't store.
+        // System/native UIDs without positive recorded foreground time stay unknown, whether the
+        // timer is absent or zero (proto omits zero timers): non-TOP foreground states aren't stored.
         // whittle: App-UID keyboards (IMEs) also use FOREGROUND, not TOP, and can look background-only.
         // Upgrade when the st FOREGROUND column is stored (schema change).
-        val fg = (row.fgMs ?: if (!BatteryStatsParser.isSystemUid(row.uid)) 0L else null)
-            ?.takeIf { it >= 0 } ?: return null
+        if (BatteryStatsParser.isSystemUid(row.uid) && (row.fgMs ?: 0L) <= 0L) return null
+        val fg = (row.fgMs ?: 0L).takeIf { it >= 0 } ?: return null
         return fg.toDouble() + top.toDouble()
     }
 
