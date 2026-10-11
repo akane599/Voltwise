@@ -1,12 +1,23 @@
 package com.akane.voltwise.battery.data
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HistoryLimitsTest {
     @Test fun samplesRemainExportableAndImportableUntilTheNextTrim() {
+        assertEquals("Sample trim reserves exactly one cleanup interval", HistoryLimits.CLEANUP_SAMPLE_INTERVAL,
+            HistoryLimits.MAX_SAMPLES - HistoryLimits.SAMPLE_TRIM_TARGET)
         assertTrimHeadroom(HistoryLimits.SAMPLE_TRIM_TARGET, HistoryLimits.MAX_SAMPLES)
+    }
+
+    @Test fun fullSampleImportFollowedByNativeWriteCannotGrowThroughAnotherImport() {
+        val afterNativeWrite = HistoryLimits.MAX_SAMPLES + 1
+        assertEquals("A full import plus one native write needs exactly interval + 1 deletions",
+            HistoryLimits.CLEANUP_SAMPLE_INTERVAL + 1, afterNativeWrite - HistoryLimits.SAMPLE_TRIM_TARGET)
+        assertTrue(HistoryLimits.importWithinLimit(afterNativeWrite, afterNativeWrite, HistoryLimits.MAX_SAMPLES))
+        assertFalse(HistoryLimits.importWithinLimit(afterNativeWrite, afterNativeWrite + 1, HistoryLimits.MAX_SAMPLES))
     }
 
     @Test fun sessionsRemainExportableAndImportableUntilTheNextTrim() {

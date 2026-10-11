@@ -41,6 +41,45 @@ class HistoryImportTest {
             assertEquals(1, db.batteryDao().count())
         }
     }
+    @Test fun nativeWriteAfterImportTrimsOnlyOverflowAcrossTiedTimestamps() = runBlocking {
+        database().useDatabase { db ->
+            val manager = ExportImportManager(context, db, HistoryMaintenance())
+            val points = (1..10).map { index ->
+                sample(if (index <= 6) 1500 else 1500 + index.toLong()).copy(
+                    elapsedMs = 2000 + index.toLong(), uptimeMs = 0, sessionId = null,
+                )
+            }
+            assertEquals(HistoryImportResult(10, 0, 0, 0), manager.importPayload(BatteryExport(samples = points)))
+            val nativeId = db.batteryDao().insertSample(sample(3000).copy(sessionId = null))
+            val before = db.batteryDao().samplesBetween(0, 4000).first()
+            val expected = before.sortedWith(compareByDescending<BatterySample> { it.timestamp }.thenByDescending { it.id }).take(7)
+            db.batteryDao().boundStorage(7)
+            val kept = db.batteryDao().samplesBetween(0, 4000).first()
+            assertEquals("Tied cutoff must delete only four overflow readings", 7, db.batteryDao().count())
+            assertEquals(expected.map { it.id }.toSet(), kept.map { it.id }.toSet())
+            assertEquals(2, db.batteryDao().atTimestamp(1500).size)
+            assertNotNull(db.batteryDao().byId(nativeId))
+        }
+    }
+
+    @Test fun sampleTrimPreservesBelowTargetAndOrdersTimestampTiesById() = runBlocking {
+        database().useDatabase { db ->
+            for (id in listOf(-7L, 2L, -2L)) {
+                db.batteryDao().insertSample(sample().copy(id = id, elapsedMs = 2000 + id, uptimeMs = 0, sessionId = null))
+            }
+            val before = db.batteryDao().samplesBetween(0, 3000).first().toSet()
+            db.batteryDao().boundStorage(4)
+            assertEquals("Below-target trim must preserve every reading", before, db.batteryDao().samplesBetween(0, 3000).first().toSet())
+            db.batteryDao().boundStorage(3)
+            assertEquals("At-target trim must preserve every reading", before, db.batteryDao().samplesBetween(0, 3000).first().toSet())
+            for (id in listOf(7L, 1L)) {
+                db.batteryDao().insertSample(sample().copy(id = id, elapsedMs = 2000 + id, uptimeMs = 0, sessionId = null))
+            }
+            db.batteryDao().boundStorage(3)
+            assertEquals("All-tied trim must keep the highest IDs", setOf(7L, 2L, 1L), db.batteryDao().atTimestamp(1500).map { it.id }.toSet())
+        }
+    }
+
     @Test fun ownExportPreservesTheLocalActiveSessionAndCanRestoreAPrunedPoint() = runBlocking {
         database().useDatabase { db ->
             val manager = ExportImportManager(context, db, HistoryMaintenance())
