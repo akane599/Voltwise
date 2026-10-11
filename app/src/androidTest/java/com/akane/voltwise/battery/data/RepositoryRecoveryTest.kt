@@ -96,8 +96,16 @@ class RepositoryRecoveryTest {
         val calibration = CalibrationStore(MemoryStore(), flowOf(CalibrationOverrides()), scope)
         // As BatteryApp does: retention cleanup waits for this migration.
         private val migrator = SettingsMigrator(dataStore).also { scope.launch { it.run() } }
+        @Volatile var failNextRetentionRead = false
         val repository = BatteryRepository(database, settings, scope, HistoryMaintenance(), diagnostics, sampler,
-            calibration, HistoryRetention(migrator, dataStore, com.akane.voltwise.battery.data.sampling.SamplerState(MemoryStore())) { 1 }, MemoryStore())
+            calibration, HistoryRetention(migrator, dataStore, com.akane.voltwise.battery.data.sampling.SamplerState(MemoryStore())) { 1 }, MemoryStore(),
+            readRetentionReference = {
+                if (failNextRetentionRead) {
+                    failNextRetentionRead = false
+                    throw java.io.IOException("Injected retention read failure")
+                }
+                database.batteryDao().retentionReferenceWallMs()
+            })
         suspend fun refresh() = withTimeout(60_000) {
             val result = CompletableDeferred<BatteryRepository.Realtime>()
             repository.refreshNow { result.complete(it) }
@@ -273,6 +281,37 @@ class RepositoryRecoveryTest {
         } catch (failure: Throwable) {
             throw AssertionError("Failed during $phase; observation=${repository.observation.value}; " +
                 "errors=${repository.error.value}", failure)
+        } finally { demand.close(); fixture.close() }
+    }
+
+    @Test fun transientRetentionReadFailureResetsBeforeFirstNewCapture(): Unit = runBlocking {
+        val fixture = Fixture()
+        val demand = fixture.sampler.acquire("restart-retention")
+        try {
+            DeviceEnvironment.device.wakeUp()
+            withTimeout(60_000) { while (!fixture.context.getSystemService(PowerManager::class.java).isInteractive) delay(100) }
+            val firstSaved = async(start = CoroutineStart.UNDISPATCHED) { fixture.repository.persisted.first() }
+            fixture.repository.startSampling()
+            val saved = withTimeout(60_000) { firstSaved.await() }
+            val old = withTimeout(60_000) { fixture.repository.observation.first { it.observedMs >= 2_000 } }
+            assertEquals("the old run has an unpersisted tail", 1, fixture.database.batteryDao().count())
+            fixture.context.missingBattery = true
+            fixture.repository.stopSampling()
+            withTimeout(60_000) { fixture.repository.observation.first { it.stopped } }
+            fixture.failNextRetentionRead = true
+            fixture.repository.startSampling()
+            withTimeout(60_000) { fixture.repository.error.first { it?.contains("History collection failed") == true } }
+            assertNull("restart must reset before a throwing storage lookup", fixture.repository.observation.value.startedAt)
+            assertEquals(0L, fixture.repository.observation.value.observedMs)
+            val newSaved = async(start = CoroutineStart.UNDISPATCHED) { fixture.repository.persisted.first() }
+            fixture.context.missingBattery = false
+            fixture.refresh()
+            val recovered = withTimeout(60_000) { newSaved.await() }
+            val current = fixture.repository.observation.value
+            assertNotEquals(old.startedAt, current.startedAt)
+            assertNotEquals(saved.observationId, recovered.observationId)
+            assertEquals("first new capture is an anchor, not the previous run's tail", 0L, current.observedMs)
+            withTimeout(60_000) { fixture.repository.error.first { it == null } }
         } finally { demand.close(); fixture.close() }
     }
 

@@ -3,6 +3,9 @@ package com.akane.voltwise.viewmodel
 import android.graphics.Bitmap
 import com.akane.voltwise.battery.insights.model.*
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import com.akane.voltwise.battery.apps.AppInfo
 import com.akane.voltwise.battery.apps.AppInfoSource
 import com.akane.voltwise.battery.apps.AppLabel
@@ -109,6 +112,106 @@ class NowViewModelTest {
         runCurrent()
         assertTrue(state().insightsSummary!!.allGood)
         assertEquals(0, state().insightsSummary!!.activeFindingCount)
+    }
+
+    @Test fun staleAppWindowsCannotAuthorizeAllGoodOnEitherDestination() = runTest {
+        val fixture = InsightObservationFixture(this)
+        fixture.windows(fixture.now - 8 * 24 * HOUR)
+        fixture.insights.refresh()
+        val source = object : InsightsRepository by fixture.adapter {
+            override val privileged = kotlinx.coroutines.flow.flowOf(true)
+        }
+        val insightsVm = InsightsViewModel(source, backgroundScope, applyResults = InsightApplyResults())
+        val nowSource = object : NowRepository by repo {
+            override val insights = fixture.insights.report
+            override val lastAnalyzedAt = fixture.insights.lastAnalyzedAt
+            override val eligibleSessionCount = fixture.adapter.eligibleSessionCount
+        }
+        repo.discharge.value = fixture.sessionRows.value.take(1)
+        val nowVm = NowViewModel(nowSource, monitoring, appInfo, clock = { fixture.now }, computeDispatcher = dispatcher)
+        backgroundScope.launch { insightsVm.state.collect { } }
+        backgroundScope.launch { nowVm.state.collect { } }
+        try {
+            // The eligibility transform runs on Dispatchers.Default, so await the downstream values.
+            kotlinx.coroutines.withContext(Dispatchers.Default) {
+                kotlinx.coroutines.withTimeout(10_000) {
+                    insightsVm.state.first { it.loaded }
+                    nowVm.state.first { it.insightsSummary != null }
+                }
+            }
+            runCurrent()
+            assertTrue(insightsVm.state.value.lowData)
+            assertNotNull(nowVm.state.value.sinceUnplug)
+            assertFalse(nowVm.state.value.insightsSummary!!.allGood)
+            assertTrue(nowVm.state.value.insightsSummary!!.learning)
+            assertEquals("stale windows remain available for future baselines", 5, fixture.sessionRows.value.size)
+        } finally {
+            insightsVm.viewModelScope.cancel()
+            nowVm.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun eligibilityQueryRecoversBothVisibleDestinationsInitiallyAndAfterEmission() = runTest {
+        val fixture = InsightObservationFixture(this)
+        fixture.windows(fixture.now)
+        fixture.insights.refresh()
+        fixture.sessionFailure = java.io.IOException("initial query")
+        val source = object : InsightsRepository by fixture.adapter {
+            override val privileged = kotlinx.coroutines.flow.flowOf(true)
+        }
+        val insightsVm = InsightsViewModel(source, backgroundScope, applyResults = InsightApplyResults())
+        val nowSource = object : NowRepository by repo {
+            override val insights = fixture.insights.report
+            override val lastAnalyzedAt = fixture.insights.lastAnalyzedAt
+            override val eligibleSessionCount = fixture.adapter.eligibleSessionCount
+        }
+        val nowVm = NowViewModel(nowSource, monitoring, appInfo, computeDispatcher = dispatcher)
+        backgroundScope.launch { insightsVm.state.collect { } }
+        backgroundScope.launch { nowVm.state.collect { } }
+        try {
+            runCurrent()
+            assertFalse(insightsVm.state.value.loaded)
+            assertNull(nowVm.state.value.insightsSummary)
+            assertEquals(2, fixture.eligibilityFailures)
+            fixture.sessionFailure = null
+            testScheduler.advanceTimeBy(60_000)
+            runCurrent()
+            assertTrue(insightsVm.state.value.loaded)
+            assertFalse(insightsVm.state.value.lowData)
+            assertTrue(nowVm.state.value.insightsSummary!!.allGood)
+            fixture.sessionFailure = java.io.IOException("invalidation")
+            fixture.sessionRows.value = emptyList()
+            runCurrent()
+            assertFalse(insightsVm.state.value.lowData)
+            assertTrue(nowVm.state.value.insightsSummary!!.allGood)
+            assertEquals(4, fixture.eligibilityFailures)
+            fixture.sessionFailure = null
+            testScheduler.advanceTimeBy(60_000)
+            runCurrent()
+            assertTrue(insightsVm.state.value.lowData)
+            assertTrue(nowVm.state.value.insightsSummary!!.learning)
+        } finally {
+            insightsVm.viewModelScope.cancel()
+            nowVm.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun currentWindowBoundaryRetainsOlderBaselinesAndRechecksOnAnalysis() = runTest {
+        val fixture = InsightObservationFixture(this)
+        val newestEnd = fixture.now - 7 * 24 * HOUR
+        fixture.windows(newestEnd)
+        assertEquals("exactly seven days still supplies a current window", 5, fixture.adapter.eligibleSessionCount.first())
+        val counts = kotlinx.coroutines.flow.MutableStateFlow(-1)
+        backgroundScope.launch { fixture.adapter.eligibleSessionCount.collect { counts.value = it } }
+        kotlinx.coroutines.withContext(Dispatchers.Default) {
+            kotlinx.coroutines.withTimeout(10_000) { counts.first { it == 5 } }
+        }
+        fixture.now++
+        fixture.insights.refresh()
+        kotlinx.coroutines.withContext(Dispatchers.Default) {
+            kotlinx.coroutines.withTimeout(10_000) { counts.first { it == 0 } }
+        }
+        assertEquals(5, fixture.sessionRows.value.size)
     }
 
     @Test fun insightsMapHeadlineIdentityAndCountOnlyActiveNonInformationalFindings() = runTest {

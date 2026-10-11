@@ -22,7 +22,9 @@ Room (sessions, session_app_usage, *_device_wakers, insight_*)
                  └─ battery/insights/InsightNotifier.kt  one HIGH finding per 24 h
 ```
 
-Every `report` publish re-reads the findings table under a small `publishLock`, separate from the analysis mutex, so the Room-driven republish (initial load, Clear history) is never held back by a running analysis; `refresh()`'s commit (upsert, `LAST_ANALYZED_AT`, publish) runs under `NonCancellable`, so a cancelled refresh writes all of it or none; `refresh()` runs under the analysis mutex and captures `HistoryMaintenance`'s clear generation before
+Every `refresh()` captures related database inputs in one `readTransaction` (Koin supplies Room `withTransaction`), preventing retention or snapshot finalization from splitting session headers from app/waker rows. Live whitelist/settings reads and engine analysis run outside that transaction. `InsightRepositoryTest` covers a retention interleaving with the real engine; `androidTest/.../battery/insights/InsightSnapshotTransactionTest.kt` covers Room transaction isolation (device execution required).
+
+Every `report` publish re-reads the findings table under a small `publishLock`, separate from the analysis mutex. The Room observer retries both its query and this publication re-read after a cancellable 60 s delay; a recovered observer republishes a history clear without another analysis. Observation failures record the fixed `APP_SCOPE_FAILED` diagnostic through Koin wiring. The Room-driven republish (initial load, Clear history) is never held back by a running analysis; `refresh()`'s commit (upsert, `LAST_ANALYZED_AT`, publish) runs under `NonCancellable`, so a cancelled refresh writes all of it or none; `refresh()` runs under the analysis mutex and captures `HistoryMaintenance`'s clear generation before
 reading; its writes happen under `HistoryMaintenance.mutations` and are dropped when a history clear ran in
 between (no stale report after Clear history). `dismiss(key)` / `notAProblem(key)` write user feedback (`notAProblem` only multiplies an ACTIVE row, so repeated taps count once)
 (a down-weighting multiplier) that the next refresh honours, under the same `mutations` lock and clear-generation
@@ -52,6 +54,20 @@ the Others row kept; the stored waker count is taken before that filter); stale 
 
 ## UI
 
+The eligibility session query retries after a cancellable 60 s delay with fixed `APP_SCOPE_FAILED` diagnostics, preserving initial loading or the last successful count instead of substituting zero. `InsightObservationRecoveryTest` and `NowViewModelTest` cover initial/invalidation failures, cancellation and both visible destinations.
+
+`DefaultInsightsRepository.eligibleSessionCount` counts comparable windows only when the newest window is
+at most seven days old (the detector's `MAX_CURRENT_WINDOW_AGE_MS`); otherwise it returns zero, so neither
+Insights nor Now claims “all good” from stale evidence. Older baseline windows remain stored and count
+when a current window exists. Eligibility is recomputed on session changes and completed analysis
+revisions, including Analyze now when no history row changed. This changes presentation eligibility,
+not detector firing or severity thresholds.
+
+The action repository's `actions` observation retries query failures after a cancellable 60 s delay,
+recording `APP_SCOPE_FAILED` through its diagnostic callback. It emits no empty fallback: destinations
+remain loading before the first journal result, or retain the last journal while retrying. Both UI
+collectors and the always-active pending-dialog observer use this source; cancellation is not retried.
+
 | Screen | Files | ViewModel |
 | --- | --- | --- |
 | Insights tab | `ui/screens/insights/InsightsScreen.kt` (loading state until `loaded`; notice codes are silent only while that notice is on screen (`silentResultCodes`); when a later analysis clears ANALYSIS_FAILED, or the VM is cleared (`onCleared`), `InsightsViewModel` also consumes the held failure result, and a failure that lands after the VM's scope was cancelled isn't published, so no stale snackbar shows on return; `ResultSnackbar` shows `apply.lastResult` once, then sends `InsightsEvent.ResultShown`, so it survives rotation), `InsightsPanels.kt` (`SeverityChip`, shared `AppliedFixesPanel`), `InsightLabels.kt` (type titles, `evidenceLine`, `statusLabelRes()`: "Changed outside Voltwise" when `AppliedInsightAction.changedExternally`; `InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF` shows the notifications-off message with a Turn on action, the only code with an action label), `InsightApplyDialog.kt`, `SettingsPages.kt` (`openFirst`/`openSettingsPage`: requested page → app details (when a package is known) → Settings home, treating `ActivityNotFoundException` and `SecurityException` as "try the next"; returns the opened index; `settingsNotice` + `rememberSettingsOpener(snackbar)`: none opens → "Settings page unavailable", a fallback page opened → a notice (battery optimization: search Settings for it); the pending `SettingsNotice` is held in saved state and shown as a Long snackbar only once the lifecycle is RESUMED (`showOnceResumed`), so it isn't spent while Settings covers the app; text via `SettingsNotice.messageRes()`; shared by Insights and Finding details) | `viewmodel/InsightsViewModel.kt` (`InsightApplyFlow` drops a pending apply when its finding or recommendation leaves the report, but not while `DefaultInsightsRepository.privileged` is still null/unknown (null only before the first detection; an established ROOT/SHIZUKU/ADB mode maps at once); results go to the app-scoped `InsightApplyResults` single, so an outcome survives the destination popping and is shown once on whichever screen consumes it, and OpenSettings consumes only its own flow's result; each published result carries a `seq` and is consumed by that identity (`ResultShown(result)`), never by value; `changes` and Now's `changeCount` share `isInsightChange` in `InsightsUiState.kt` (INFO, directional, not ACTION_EFFECT: trends and the capacity HEALTH_DECLINE); `toInsightState(privileged, actions, reportGeneratedAtMs)` keeps Doze whitelist removal available on a live drainer finding only for removals applied (`appliedAt ?: createdAt`) strictly before the report was generated, as the Recommender does; a removal after the report counts as applied until the next analysis; likewise any ONE_SHOT ENABLE_HIGH_BATTERY_ALERT row stamped at or after the report counts as applied on every Device finding offering it (one global setting) (no Undo) until the next analysis drops the recommendation; `loaded` = a report exists; an ANALYSIS_FAILED error clears when `lastAnalyzedAt` advances (a later background refresh succeeded); the learning copy counts sessions with app data and says app findings need Shizuku or root when `privileged` is false; state in `InsightsUiState.kt`) |
@@ -79,5 +95,8 @@ Strings: `res/values*/strings_insights.xml`, `strings_finding.xml`, `strings_ins
 ## Tests
 JVM tests mirror the packages under `app/src/test/java/com/akane/voltwise/battery/insights/` and
 `battery/actions/`, plus `viewmodel/Insights*`, `FindingDetailsViewModelTest`, `di/InsightsWiringTest`,
-`InsightNotifierPolicyTest`. Screenshot tests: `InsightsScreenshotTest`, `FindingDetailsScreenshotTest`,
+`InsightNotifierPolicyTest`. `viewmodel/InsightObservationRecoveryTest` covers query/publication failures,
+clear-after-recovery, journal preservation and both destinations with/without UI collectors;
+`NowViewModelTest` exercises shared stale-evidence eligibility and the inclusive seven-day boundary.
+Screenshot tests: `InsightsScreenshotTest`, `FindingDetailsScreenshotTest`,
 the Now card previews in `NowScreenScreenshotTest`, the Findings previews in `AppDetailsScreenshotTest`.

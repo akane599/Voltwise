@@ -1,5 +1,6 @@
 package com.akane.voltwise.di
 
+import androidx.room.withTransaction
 import android.content.Context
 import android.os.Build
 import android.provider.Settings
@@ -188,6 +189,7 @@ val appModule = module {
             get(), get(), get(), System::currentTimeMillis,
             alertEnabler = { get<SettingsRepository<AppSettings>>().set(AppSettings::highBatteryAlertEnabled.name, true) },
             alertsPostable = { Notifier.canPostAlerts(androidContext()) },
+            onObservationFailure = { get<DiagnosticStore>().record(DiagnosticCode.APP_SCOPE_FAILED) },
         )
     }
     single {
@@ -207,6 +209,8 @@ val appModule = module {
                 sample?.chargeCounterUah to sample?.levelPercent
             },
             highBatteryAlertEnabled = { get<SettingsRepository<AppSettings>>().flow.first().highBatteryAlertEnabled },
+            onObservationFailure = { get<DiagnosticStore>().record(DiagnosticCode.APP_SCOPE_FAILED) },
+            readTransaction = { block -> database.withTransaction { block() } },
         )
     }
     single {
@@ -218,7 +222,10 @@ val appModule = module {
             onFailure = diagnostics::record,
         )
     }
-    single<InsightsRepository> { DefaultInsightsRepository(get(), get(), get(), get<BatteryDatabase>().sessionDao()) }
+    single<InsightsRepository> {
+        DefaultInsightsRepository(get(), get(), get(), get<BatteryDatabase>().sessionDao(),
+            onObservationFailure = { get<DiagnosticStore>().record(DiagnosticCode.APP_SCOPE_FAILED) })
+    }
     single<NowRepository> {
         val insights = get<InsightRepository>()
         DefaultNowRepository(

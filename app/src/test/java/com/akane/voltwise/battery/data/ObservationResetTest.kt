@@ -2,6 +2,9 @@ package com.akane.voltwise.battery.data
 
 import com.akane.voltwise.battery.data.db.ChargeSession
 import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.measurement.DailySummaryAggregator
+import com.akane.voltwise.battery.measurement.ObservationSummary
+import java.time.ZoneOffset
 import com.akane.voltwise.battery.measurement.Observation
 import com.akane.voltwise.battery.measurement.ObservationEngine
 import com.akane.voltwise.battery.measurement.PowerState
@@ -69,6 +72,48 @@ class ObservationResetTest {
         assertTrue(fixture.observation.value.stopped)
         assertNull(fixture.session)
         assertEquals(1, fixture.failures.size)
+    }
+
+    @Test fun failedRestartMustDiscardUnpersistedTailBeforeCrossMidnightCapture() = runTest {
+        for (resetBeforeRead in listOf(false, true)) {
+            val engine = ObservationEngine()
+            fun point(time: Long, generation: String = "old") = Observation(
+                wallMs = time, elapsedMs = time, uptimeMs = time, level = 80,
+                chargeUah = 4_000_000, currentUa = -500_000, voltageMv = 4_000,
+                power = PowerState.DISCHARGING, interactive = true, dozing = false, generation = generation,
+            )
+            val midnight = 86_400_000L
+            engine.accept(point(midnight - 4_000))
+            var persisted = engine.summary
+            engine.accept(point(midnight - 2_000))
+            assertEquals(2_000L, engine.summary.observedMs)
+            engine.stop()
+            var failures = 0
+            val writer = HistoryWriter<Boolean>(backgroundScope, StandardTestDispatcher(testScheduler),
+                HistoryMaintenance(), { null }, { false }, handleEvent = { start ->
+                    if (start) {
+                        // Android-free callback mirrors start's reset/read order; device test covers wiring.
+                        if (resetBeforeRead) { engine.reset(); persisted = ObservationSummary() }
+                        throw java.io.IOException("one-shot retention lookup")
+                    } else {
+                        engine.accept(point(midnight + 4_000, "new"))
+                    }
+                }, onFailure = { failures++ })
+            writer.trySend(true)
+            writer.trySend(false)
+            runCurrent()
+            assertEquals(1, failures)
+            val interval = DailySummaryAggregator.interval(persisted, engine.summary, null)!!
+            val days = DailySummaryAggregator.apply(emptyMap(), interval, ZoneOffset.UTC, midnight + 4_000)
+            if (resetBeforeRead) {
+                assertEquals(0L, engine.summary.observedMs)
+                assertEquals(midnight + 4_000, engine.summary.startedAt)
+                assertEquals(listOf(1L), days.map { it.epochDay })
+                assertEquals(0L, days.sumOf { it.screenOnMs })
+            } else {
+                assertTrue("negative control: stale tail leaks into the stopped day", days.single { it.epochDay == 1L }.screenOnMs > 0)
+            }
+        }
     }
 
     private fun TestScope.writer(fixture: LifecycleFixture) = HistoryWriter(

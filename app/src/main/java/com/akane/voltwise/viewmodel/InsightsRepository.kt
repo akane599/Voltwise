@@ -10,12 +10,18 @@ import com.akane.voltwise.battery.insights.actions.ActionResult
 import com.akane.voltwise.battery.insights.actions.InsightActionRepository
 import com.akane.voltwise.battery.insights.actions.undoable
 import com.akane.voltwise.battery.insights.enumName
+import com.akane.voltwise.battery.insights.engine.MAX_CURRENT_WINDOW_AGE_MS
 import com.akane.voltwise.battery.insights.engine.eligibility.AppWindows
 import com.akane.voltwise.battery.insights.model.*
 import com.akane.voltwise.battery.util.ShellRunner
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -29,6 +35,7 @@ interface InsightsRepository {
     val privileged: Flow<Boolean?>
     val lastAnalyzedAt: Flow<Long?>
     val successfulAnalysisRevision: StateFlow<Long>
+    /** Comparable app windows; zero without a fresh current window, even if old baselines remain. */
     val eligibleSessionCount: Flow<Int>
     suspend fun analyzeNow()
     suspend fun dismiss(key: String)
@@ -43,6 +50,8 @@ class DefaultInsightsRepository(
     private val shellRunner: ShellRunner,
     sessionDao: SessionDao,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val onObservationFailure: () -> Unit = {},
+    private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : InsightsRepository {
     override val report = insights.report
     override val actions = actionRepository.actions
@@ -56,13 +65,23 @@ class DefaultInsightsRepository(
         }
         emitAll(shellRunner.access.map { it == ShellRunner.Mode.SHIZUKU || it == ShellRunner.Mode.ROOT })
     }
-    override val eligibleSessionCount = sessionDao.filteredSessions(null, "", Int.MAX_VALUE).map { sessions ->
+    override val eligibleSessionCount = combine(
+        sessionDao.filteredSessions(null, "", Int.MAX_VALUE).retryWhen { cause, _ ->
+            if (cause is CancellationException || cause !is Exception) throw cause
+            onObservationFailure()
+            delay(60_000)
+            true
+        }, insights.successfulAnalysisRevision,
+    ) { sessions, _ ->
+        // An explicit analysis can age out the current window without any history-table mutation.
+        val now = clock()
         val inputs = InsightInputsBuilder.build(
-            clock(), 0, null, sessions, emptyList(), emptyList(), emptyList(), emptyList(),
+            now, 0, null, sessions, emptyList(), emptyList(), emptyList(), emptyList(),
             null, emptyList(), emptyList(),
         )
-        AppWindows.select(inputs).size
-    }.flowOn(Dispatchers.Default)
+        val windows = AppWindows.select(inputs)
+        if (windows.lastOrNull()?.atMs?.let { it >= now - MAX_CURRENT_WINDOW_AGE_MS } == true) windows.size else 0
+    }.flowOn(computeDispatcher)
     override suspend fun analyzeNow() {
         shellRunner.detectMode(forceRefresh = true)
         insights.refresh()

@@ -9,6 +9,10 @@ import com.akane.voltwise.battery.data.sampling.KeyValueStore
 import com.akane.voltwise.battery.insights.engine.InsightEngine
 import com.akane.voltwise.battery.insights.engine.findingOrder
 import com.akane.voltwise.battery.insights.model.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -49,6 +53,8 @@ class InsightRepository(
     private val highBatteryAlertEnabled: suspend () -> Boolean = { false },
     /** Production resolves the live device zone; explicit clocks retain their fixture zone by default. */
     private val currentZone: () -> ZoneId = { clock.zone },
+    private val onObservationFailure: () -> Unit = {},
+    private val readTransaction: suspend (suspend () -> InsightInputs) -> InsightInputs = { it() },
 ) {
     private val mutex = Mutex()
     private val publishLock = Mutex()
@@ -67,7 +73,13 @@ class InsightRepository(
         }
         scope.launch(ioDispatcher) {
             initialization.await()
-            insightDao.findings().collect { publish() }
+            // Include the locked re-read in the retry boundary, not just Room's invalidation flow.
+            insightDao.findings().onEach { publish() }.retryWhen { cause, _ ->
+                if (cause is CancellationException || cause !is Exception) throw cause
+                onObservationFailure()
+                delay(60_000)
+                true
+            }.collect()
         }
     }
 
@@ -86,18 +98,22 @@ class InsightRepository(
             val now = clock.millis()
             val zone = currentZone()
             val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toEpochDay()
-            val sessions = sessionDao.closedSessionsBetween(now - InsightInputsBuilder.HISTORY_MS, now)
-                .filter { it.endTime != null }
-            val ids = sessions.map { it.sessionId }
-            val rows = ids.chunked(QUERY_CHUNK).flatMap { appUsageDao.usageRowsForSessions(it) }
-            val wakers = ids.chunked(QUERY_CHUNK).flatMap { appUsageDao.sessionWakers(it) }
             val (counter, level) = capacityReading()
-            InsightInputsBuilder.build(
-                now, today, resolveFullUah(counter, level, storedFullUah(sessions)), sessions,
-                dailyDao.range(today - InsightInputsBuilder.HISTORY_DAYS, today), rows, wakers,
-                sessionDao.capacityEstimates(Int.MAX_VALUE).first(), dozeWhitelist(),
-                insightDao.actionsOnce(), insightDao.findingsOnce(), zone = zone,
-            ).copy(highBatteryAlertEnabled = highBatteryAlertEnabled())
+            // Retention and snapshot finalization must not split session headers from their rows.
+            val snapshot = readTransaction {
+                val sessions = sessionDao.closedSessionsBetween(now - InsightInputsBuilder.HISTORY_MS, now)
+                    .filter { it.endTime != null }
+                val ids = sessions.map { it.sessionId }
+                val rows = ids.chunked(QUERY_CHUNK).flatMap { appUsageDao.usageRowsForSessions(it) }
+                val wakers = ids.chunked(QUERY_CHUNK).flatMap { appUsageDao.sessionWakers(it) }
+                InsightInputsBuilder.build(
+                    now, today, resolveFullUah(counter, level, storedFullUah(sessions)), sessions,
+                    dailyDao.range(today - InsightInputsBuilder.HISTORY_DAYS, today), rows, wakers,
+                    sessionDao.capacityEstimates(Int.MAX_VALUE).first(), null,
+                    insightDao.actionsOnce(), insightDao.findingsOnce(), zone = zone,
+                )
+            }
+            snapshot.copy(dozeUserWhitelist = dozeWhitelist(), highBatteryAlertEnabled = highBatteryAlertEnabled())
         }
         val analyzed = withContext(analyzeDispatcher) { analyze(inputs) }
         withContext(ioDispatcher) {

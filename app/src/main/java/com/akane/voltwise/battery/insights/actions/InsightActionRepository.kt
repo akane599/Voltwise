@@ -10,6 +10,9 @@ import com.akane.voltwise.battery.insights.enumName
 import com.akane.voltwise.battery.insights.model.*
 import com.akane.voltwise.battery.util.ExecutionCertainty
 import com.akane.voltwise.battery.util.ShellRunner.Outcome
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,9 +36,16 @@ class InsightActionRepository(
     private val clock: () -> Long,
     private val alertEnabler: suspend () -> Unit,
     private val alertsPostable: () -> Boolean,
+    private val onObservationFailure: () -> Unit = {},
 ) {
     private val mutex = Mutex()
-    val actions: Flow<List<InsightActionEntity>> = dao.actions()
+    // Keep the last journal (or remain loading); an empty fallback would re-enable applied actions.
+    val actions: Flow<List<InsightActionEntity>> = dao.actions().retryWhen { cause, _ ->
+        if (cause is CancellationException || cause !is Exception) throw cause
+        onObservationFailure()
+        delay(60_000)
+        true
+    }
 
     suspend fun apply(finding: Finding, rec: Recommendation): ActionResult {
         val app = finding.subject as? Subject.App

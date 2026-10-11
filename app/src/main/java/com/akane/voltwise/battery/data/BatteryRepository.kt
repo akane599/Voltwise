@@ -115,6 +115,7 @@ class BatteryRepository(
     private val calibration: CalibrationStore,
     private val retention: HistoryRetention,
     samplerPreferences: KeyValueStore,
+    private val readRetentionReference: suspend () -> Long? = { db.batteryDao().retentionReferenceWallMs() },
 ) {
     private val batteryDao = db.batteryDao()
     val sessionDao = db.sessionDao()
@@ -323,12 +324,13 @@ class BatteryRepository(
 
     private suspend fun start(generation: String) {
         this.generation = generation
-        // Freeze the reference before any sample under this generation can be saved.
-        retentionReferenceWallMs = batteryDao.retentionReferenceWallMs()
         session = null
         if (savedTapers == null) savedTapers = samplerState.loadTapers().also { chargeEta = ChargeEta(it) }
         resetObservationState()
         needsSessionRecovery = true
+        // Reset even if the reference read fails; freeze it before this generation's first write.
+        retentionReferenceWallMs = null
+        retentionReferenceWallMs = readRetentionReference()
         recoverInterruptedSession()
         backfillDailySummaries()
         seedDischargeEta()

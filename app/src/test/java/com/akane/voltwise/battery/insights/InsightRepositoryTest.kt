@@ -18,6 +18,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
 import org.junit.Assert.*
 import org.junit.Test
@@ -81,6 +83,9 @@ class InsightRepositoryTest {
         var dailyRows = emptyList<DailySummary>()
         var currentZone: () -> ZoneId = { clockZone }
         var beforeSessions: suspend () -> Unit = {}
+        var afterSessions: suspend () -> Unit = {}
+        var readTransaction: suspend (suspend () -> InsightInputs) -> InsightInputs = { it() }
+        var outsideDatabaseRead: () -> Unit = {}
         var duringAnalysis: () -> Unit = {}
         var analyze: ((InsightInputs) -> InsightReport)? = null
         var appRows: List<SessionAppUsage>? = null
@@ -99,7 +104,9 @@ class InsightRepositoryTest {
                 events += "sessions"
                 beforeSessions()
                 window = from to to
-                return sessions
+                val snapshot = sessions
+                afterSessions()
+                return snapshot
             }
             override fun capacityEstimates(limit: Int) = flowOf(emptyList<CapacityEstimateRow>())
         }
@@ -120,10 +127,11 @@ class InsightRepositoryTest {
             }
         }
         fun repository(scope: TestScope) = InsightRepository(sessionDao, daily, apps, insights, scope.backgroundScope,
-            clock, { events += "whitelist"; whitelist }, store,
+            clock, { outsideDatabaseRead(); events += "whitelist"; whitelist }, store,
             maintenance = maintenance,
             capacityReading = { 2_000_000L to 50 },
-            highBatteryAlertEnabled = { highBatteryAlertEnabled },
+            highBatteryAlertEnabled = { outsideDatabaseRead(); highBatteryAlertEnabled },
+            readTransaction = { readTransaction(it) },
             currentZone = { currentZone() },
             ioDispatcher = StandardTestDispatcher(scope.testScheduler),
             analyzeDispatcher = StandardTestDispatcher(scope.testScheduler),
@@ -133,6 +141,53 @@ class InsightRepositoryTest {
                 duringAnalysis()
                 analyze?.invoke(it) ?: InsightReport(it.nowMs, output, output.firstOrNull())
             })
+    }
+
+    @Test fun retentionBetweenInputQueriesCannotManufactureNewHeavyApp() = runTest {
+        val fixture = Fixture()
+        fixture.whitelist = emptySet()
+        fixture.sessions = listOf(11, 10, 9, 8, 1).map { days ->
+            val end = NOW - days * 24 * HOUR
+            testSession("day$days").copy(startTime = end - HOUR, endTime = end,
+                appCaptureStartMs = end - HOUR, appCaptureEndMs = end)
+        }
+        fixture.appRows = fixture.sessions.map {
+            testAppRow(it.sessionId).copy(powerMah = 40.0, backgroundTimeMs = HOUR, foregroundTimeMs = 0, topMs = 0)
+        }
+        fixture.analyze = { InsightEngine.analyze(it, 28) }
+        val transaction = Mutex()
+        var transactions = 0
+        var readingInputs = false
+        fixture.readTransaction = { block -> transaction.withLock {
+            transactions++
+            readingInputs = true
+            try { block() } finally { readingInputs = false }
+        } }
+        fixture.outsideDatabaseRead = { assertFalse("shell/settings reads must not hold Room's transaction", readingInputs) }
+        fixture.duringAnalysis = { assertFalse("analysis must not hold Room's transaction", readingInputs) }
+        val repo = fixture.repository(this)
+        repo.refresh()
+        assertFalse(repo.report.value!!.findings.any { it.type == FindingType.NEW_HEAVY_APP })
+        var cleanup: Deferred<Unit>? = null
+        fixture.afterSessions = {
+            fixture.afterSessions = {}
+            cleanup = async(start = CoroutineStart.UNDISPATCHED) {
+                transaction.withLock {
+                    fixture.sessions = fixture.sessions.takeLast(1)
+                    fixture.appRows = fixture.appRows!!.takeLast(1)
+                }
+            }
+            yield()
+        }
+        repo.refresh()
+        cleanup!!.await()
+        assertFalse("torn reads turn deleted baselines into measured absences",
+            repo.report.value!!.findings.any { it.type == FindingType.NEW_HEAVY_APP })
+        assertEquals(5, fixture.seen.last().sessions.size)
+        repo.refresh()
+        assertEquals(1, fixture.seen.last().sessions.size)
+        assertFalse(repo.report.value!!.findings.any { it.type == FindingType.NEW_HEAVY_APP })
+        assertEquals(3, transactions)
     }
 
     @Test fun retainedRepositoryUsesNewZoneForCompletedDaysAndAppMidnights() = runTest {
