@@ -244,9 +244,9 @@ class StatusViewModelTest {
         assertTrue(state().issueLogUnavailable)
         assertEquals(NOW, state().nowMs)
 
-        // Every problem code has plain words; every other code is context and never listed.
+        // Every problem kind has plain words (the two Doze codes share one kind); every other code is context and never listed.
         val every = DiagnosticCode.entries.mapIndexed { i, code -> DiagnosticEvent(code, i.toLong(), i.toLong()) }
-        assertEquals(StatusIssueKind.entries.size, StatusViewModel.issues(every).size)
+        assertEquals(StatusIssueKind.entries.toSet(), StatusViewModel.issues(every).map { it.kind }.toSet())
     }
 
     @Test fun advancedIncompleteIsDiagnosticReportOnlyNotAnOnScreenIssue() = runTest {
