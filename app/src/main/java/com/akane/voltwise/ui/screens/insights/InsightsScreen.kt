@@ -79,19 +79,16 @@ fun InsightsScreen(
     vm: InsightsViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val appInfo: AppInfoSource = koinInject()
     val openFinding by rememberUpdatedState(onOpenFinding)
     val snackbar = remember { SnackbarHostState() }
-    val settingsUnavailable by rememberUpdatedState(stringResource(R.string.insights_settings_unavailable))
+    val openSettings = rememberSettingsOpener()
     LaunchedEffect(vm) {
         vm.effects.collect { effect ->
             when (effect) {
                 // The snackbar follows the ViewModel's held result (state.apply.lastResult), which survives rotation.
                 is InsightUiEffect.Message -> Unit
-                is InsightUiEffect.OpenSettings -> if (!openSettingsPage(context, effect.spec)) {
-                    launch { snackbar.showSnackbar(settingsUnavailable) }
-                }
+                is InsightUiEffect.OpenSettings -> openSettings(effect.spec)?.let { launch { snackbar.showSnackbar(it) } }
                 is InsightUiEffect.OpenFinding -> openFinding(effect.key)
             }
         }
@@ -123,7 +120,7 @@ internal fun silentResultCodes(error: InsightMessageCode?): Set<InsightMessageCo
  * result with [InsightsEvent.ResultShown] once it was shown or dismissed, so a newer result published meanwhile
  * stays held. A rotation mid-snackbar cancels this before the consume, so the result shows again on the new
  * screen instead of being lost. An alert turned on while notifications are off offers Turn on, which opens the
- * app's notification settings (or the next page [openSettingsPage] can open; if none, says so).
+ * app's notification settings (or the next page [openSettingsPage] can open, and says so; if none, says that).
  */
 @Composable
 internal fun ResultSnackbar(
@@ -134,7 +131,7 @@ internal fun ResultSnackbar(
 ) {
     val text = result?.let { stringResource(it.messageRes()) }
     val actionLabel = result?.actionLabelRes()?.let { stringResource(it) }
-    val unavailable = stringResource(R.string.insights_settings_unavailable)
+    val openSettings = rememberSettingsOpener()
     val context = LocalContext.current
     // Outlives this result's effect, which the consume below cancels.
     val scope = rememberCoroutineScope()
@@ -145,8 +142,8 @@ internal fun ResultSnackbar(
             // An action needs time to reach (Material's default for one, Indefinite, would never time out).
             val duration = if (actionLabel == null) SnackbarDuration.Short else SnackbarDuration.Long
             val shown = snackbar.showSnackbar(text, actionLabel, duration = duration)
-            if (shown == SnackbarResult.ActionPerformed && !openSettingsPage(context, notificationSettings(context.packageName))) {
-                scope.launch { snackbar.showSnackbar(unavailable) }
+            if (shown == SnackbarResult.ActionPerformed) {
+                openSettings(notificationSettings(context.packageName))?.let { scope.launch { snackbar.showSnackbar(it) } }
             }
         }
         currentOnEvent(InsightsEvent.ResultShown(result))

@@ -203,4 +203,6 @@
     <string name="insights_message_feedback_failed">Geri bildirimin kaydedilemedi.</string>
 
     <string name="insights_settings_unavailable">Bu cihazda ayarlar sayfası kullanılamıyor.</string>
+    <string name="insights_settings_fallback">Bu sayfa bu cihazda yok; Voltwise en yakın sayfayı açtı.</string>
+    <string name="insights_settings_fallback_battery_optimization">Pil optimizasyonu bu cihazda yok; Voltwise en yakın sayfayı açtı. Ayarlar\'da \"Pil optimizasyonu\" diye arayın.</string>
 </resources>

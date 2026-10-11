@@ -204,4 +204,6 @@
     <string name="insights_message_feedback_failed">No se pudo guardar tu opinión.</string>
 
     <string name="insights_settings_unavailable">La página de ajustes no está disponible en este dispositivo.</string>
+    <string name="insights_settings_fallback">Esa página no está disponible en este dispositivo, así que Voltwise abrió la más parecida.</string>
+    <string name="insights_settings_fallback_battery_optimization">La optimización de batería no está disponible en este dispositivo, así que Voltwise abrió la página más parecida. Busca \"Optimización de batería\" en Ajustes.</string>
 </resources>

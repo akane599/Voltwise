@@ -642,7 +642,7 @@ class InsightsViewModelTest {
         assertTrue(source.applied.isEmpty())
     }
 
-    @Test fun highBatteryAlertMessageCarriesNotificationsBlockedInStateAndEffect() = runTest {
+    @Test fun highBatteryAlertMessageCodeSaysWhetherNotificationsAreOffInStateAndEffect() = runTest {
         val finding = insightFinding().copy(
             subject = Subject.Device,
             recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT)),
@@ -657,9 +657,12 @@ class InsightsViewModelTest {
             vm.onEvent(InsightsEvent.ConfirmApply)
             runCurrent()
             val message = checkNotNull(vm.state.value.apply.lastResult)
-            assertEquals(InsightMessageCode.ONE_SHOT, message.code)
+            assertEquals(
+                "The message code must preserve the notification postability outcome",
+                if (blocked) InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF else InsightMessageCode.ONE_SHOT,
+                message.code,
+            )
             assertEquals(19L, message.actionId)
-            assertEquals("The message must preserve the notification postability outcome", blocked, message.notificationsBlocked)
             assertEquals(message, (effects.last() as InsightUiEffect.Message).result)
             assertEquals(message, results.latest.value)
         }
@@ -678,6 +681,7 @@ class InsightsViewModelTest {
             ActionResult.ChangedExternally("private shell text") to InsightMessageCode.CHANGED_EXTERNALLY,
             ActionResult.ChangedExternally(null) to InsightMessageCode.CHANGED_EXTERNALLY,
             ActionResult.OneShot(3) to InsightMessageCode.ONE_SHOT,
+            ActionResult.OneShot(4, notificationsBlocked = true) to InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF,
         ) + FailureCode.entries.map { ActionResult.Failed(it) to InsightMessageCode.valueOf(it.name) } +
             RefusalCode.entries.map { ActionResult.Refused(it) to InsightMessageCode.valueOf(it.name) }
         for ((result, expected) in cases) {
