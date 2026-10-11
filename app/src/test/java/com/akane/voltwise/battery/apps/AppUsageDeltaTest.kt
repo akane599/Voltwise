@@ -1,5 +1,6 @@
 package com.akane.voltwise.battery.apps
 
+import com.akane.voltwise.battery.util.BatteryStatsParser
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -35,6 +36,103 @@ class AppUsageDeltaTest {
         assertEquals(500L, delta.cpuTimeMs)
         // Mobile bytes counter went down (rounding/reporting jitter); clamp to zero, never negative.
         assertEquals(0L, delta.mobileBytes)
+    }
+
+    @Test fun knownApplicationIdentityChangeCannotSubtractUnrelatedRisingCounters() {
+        val baseline = snapshot(100L, 1L,
+            row(10_123, power = 1.0, cpu = 100).copy(packageName = "com.example.a"),
+        ).copy(capturedAt = 1_000L)
+        val end = snapshot(100L, 1L,
+            row(10_123, power = 3.0, cpu = 150).copy(packageName = "com.example.b"),
+        ).copy(capturedAt = 2_000L)
+
+        val result = AppUsageDelta.compute(baseline, end)
+
+        assertEquals("Changed application identity must not be comparable DELTA evidence",
+            AppUsageBasis.ABSOLUTE, result.basis)
+        assertEquals("Retain end evidence instead of a fabricated cross-package difference", end.rows, result.rows)
+        assertNull("Changed application identity must not certify an Insights capture", result.captureStartMs)
+        assertEquals(2_000L, result.captureEndMs)
+    }
+
+    @Test fun stableApplicationAndSystemOrUnknownNamesKeepComparableDeltas() {
+        val cases = listOf(
+            Triple(10_123, "com.example.a", "com.example.a"),
+            Triple(1000, "com.example.a", "com.example.b"),
+            Triple(101_000, "com.example.a", "com.example.b"), // secondary user's system UID
+            Triple(10_123, "", "com.example.b"),
+            Triple(10_123, "com.example.a", " "),
+            Triple(10_123, "UID 10123", "com.example.b"),
+            Triple(10_123, "com.example.a", "Shared UID 10123"),
+        )
+        for ((uid, baseName, endName) in cases) {
+            val baseline = snapshot(100L, 1L,
+                row(uid, power = 1.0, cpu = 100).copy(packageName = baseName),
+            ).copy(capturedAt = 1_000L)
+            val end = snapshot(100L, 1L,
+                row(uid, power = 3.0, cpu = 150).copy(packageName = endName),
+            ).copy(capturedAt = 2_000L)
+
+            val result = AppUsageDelta.compute(baseline, end)
+
+            assertEquals("$uid: $baseName -> $endName", AppUsageBasis.DELTA, result.basis)
+            assertEquals(2.0, result.rows.single().powerMah, 0.0)
+            assertEquals(50L, result.rows.single().cpuTimeMs)
+            assertEquals(endName, result.rows.single().packageName)
+            assertEquals(1_000L, result.captureStartMs)
+        }
+    }
+
+    private fun sharedSnapshot(packages: List<String>, power: Double, cpu: Long, capturedAt: Long) =
+        BatteryStatsParser.FullSnapshot(
+            startedAt = 100L, startCount = 1L, capturedAt = capturedAt,
+            apps = listOf(BatteryStatsParser.AppPowerStats(
+                uid = 10_123, packageName = "Shared UID 10123", powerMah = power,
+                packages = packages, cpuTimeMs = cpu,
+            )),
+        ).toAppUsageSnapshot()
+
+    @Test fun sharedUidPackageOrderAndNonRepresentativeMembershipChangeKeepComparableDelta() {
+        val baseline = sharedSnapshot(listOf("com.example.b", "com.example.a"), 1.0, 100, 1_000)
+        for (members in listOf(
+            listOf("com.example.a", "com.example.b"),
+            listOf("com.example.c", "com.example.a"),
+        )) {
+            val end = sharedSnapshot(members, 3.0, 150, 2_000)
+            val result = AppUsageDelta.compute(baseline, end)
+
+            assertEquals(AppUsageBasis.DELTA, result.basis)
+            assertEquals("com.example.a", result.rows.single().packageName)
+            assertEquals(2.0, result.rows.single().powerMah, 0.0)
+            assertEquals(50L, result.rows.single().cpuTimeMs)
+            assertEquals(1_000L, result.captureStartMs)
+        }
+    }
+
+    @Test fun changedSharedUidRepresentativeConservativelyRefusesComparableDelta() {
+        val baseline = sharedSnapshot(listOf("com.example.a", "com.example.b"), 1.0, 100, 1_000)
+        val end = sharedSnapshot(listOf("com.example.b", "com.example.c"), 3.0, 150, 2_000)
+
+        val result = AppUsageDelta.compute(baseline, end)
+
+        assertEquals(AppUsageBasis.ABSOLUTE, result.basis)
+        assertEquals(end.rows, result.rows)
+        assertNull(result.captureStartMs)
+    }
+
+    @Test fun secondaryUserApplicationIdentityChangeAlsoRefusesComparableDelta() {
+        val baseline = snapshot(100L, 1L,
+            row(110_123, power = 1.0, cpu = 100).copy(packageName = "com.example.a"),
+        )
+        val end = snapshot(100L, 1L,
+            row(110_123, power = 3.0, cpu = 150).copy(packageName = "com.example.b"),
+        )
+
+        val result = AppUsageDelta.compute(baseline, end)
+
+        assertEquals(AppUsageBasis.ABSOLUTE, result.basis)
+        assertEquals(end.rows, result.rows)
+        assertNull(result.captureStartMs)
     }
 
     @Test fun uidMissingFromBaselineCountsFromZero() {

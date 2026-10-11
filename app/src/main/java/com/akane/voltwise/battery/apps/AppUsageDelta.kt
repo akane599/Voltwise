@@ -1,5 +1,8 @@
 package com.akane.voltwise.battery.apps
 
+import com.akane.voltwise.battery.actions.CommandPolicy
+import com.akane.voltwise.battery.util.BatteryStatsParser
+
 /** Result of comparing a discharge session's start/end app-usage snapshots. */
 data class AppUsageDeltaResult(
     val basis: AppUsageBasis,
@@ -14,8 +17,9 @@ object AppUsageDelta {
     private const val POWER_EPSILON = 1e-6
 
     fun compute(baseline: AppUsageSnapshot?, end: AppUsageSnapshot, topN: Int = 30): AppUsageDeltaResult {
+        val identityChanged = baseline != null && applicationIdentityChanged(baseline.rows, end.rows)
         val (basis, selected) = when {
-            baseline == null -> AppUsageBasis.ABSOLUTE to TopApps.selectSessionRows(end.rows, topN)
+            baseline == null || identityChanged -> AppUsageBasis.ABSOLUTE to TopApps.selectSessionRows(end.rows, topN)
             !sameWindow(baseline, end) || totalDecreased(baseline.rows, end.rows) ->
                 AppUsageBasis.WINDOW_RESET to TopApps.selectSessionRows(end.rows, topN)
             else -> AppUsageBasis.DELTA to clampedDelta(baseline.rows, end.rows, topN)
@@ -26,11 +30,25 @@ object AppUsageDelta {
         }
         // A baseline UID can disappear because its end power record was rejected. Keep the
         // accepted deltas for browsing, but do not certify complete capture coverage for Insights.
-        val captureStartMs = baseline?.let { start ->
+        val captureStartMs = baseline?.takeUnless { identityChanged }?.let { start ->
             val endUids = end.rows.map { it.uid }.toSet()
             start.capturedAt.takeIf { basis != AppUsageBasis.DELTA || start.rows.all { it.uid in endUids } }
         }
         return AppUsageDeltaResult(basis, rows, wakerDelta(baseline, end, basis), captureStartMs, end.capturedAt)
+    }
+
+    /** Stored names identify either an app or a shared UID's representative, not its full membership.
+     * A changed known application name makes subtraction unsafe, but does not prove reinstall:
+     * conservatively retain absolute evidence even if only a shared representative changed.
+     * System UIDs and unresolved/display names do not establish application replacement. */
+    private fun applicationIdentityChanged(baseline: List<AppUsageRow>, end: List<AppUsageRow>): Boolean {
+        val baselineByUid = baseline.associateBy { it.uid }
+        return end.any { row ->
+            val base = baselineByUid[row.uid]
+            row.uid >= 0 && !BatteryStatsParser.isSystemUid(row.uid) && base != null &&
+                base.packageName != row.packageName && CommandPolicy.isPackageName(base.packageName) &&
+                CommandPolicy.isPackageName(row.packageName)
+        }
     }
 
     private fun sameWindow(baseline: AppUsageSnapshot, end: AppUsageSnapshot): Boolean =

@@ -199,6 +199,32 @@ class SessionSnapshotCollectorTest {
         assertTrue("Complete END records no diagnostic", diagnostics.isEmpty())
     }
 
+    @Test fun changedApplicationIdentityStoresEndEvidenceWithoutComparableCapture() = runTest {
+        val uid = 10_123
+        val baseline = full(100, uid to 1.0).copy(apps = listOf(
+            BatteryStatsParser.AppPowerStats(uid, "com.example.a", 1.0,
+                packages = listOf("com.example.a"), cpuTimeMs = 100),
+        ))
+        val end = full(100, uid to 3.0).copy(capturedAt = 2_000, apps = listOf(
+            BatteryStatsParser.AppPowerStats(uid, "com.example.b", 3.0,
+                packages = listOf("com.example.b"), cpuTimeMs = 150),
+        ))
+        store.openDischarge("A")
+        stats.results += AppStatsResult.Ready(baseline)
+        start()
+        advance(BASELINE_DEBOUNCE_MS)
+        stats.results += AppStatsResult.Ready(end)
+        plugIn("A", "C")
+        advance(END_DEBOUNCE_MS)
+
+        assertEquals(AppUsageStatus.READY, store.status("A"))
+        assertEquals("Collector must store non-comparable identity-change evidence",
+            AppUsageBasis.ABSOLUTE, store.sessions.getValue("A").basis)
+        assertEquals(end.toAppUsageSnapshot().rows, store.usage.getValue("A"))
+        assertEquals("Storage must not certify the cross-package capture", null to 2_000L, store.captureWindows["A"])
+        assertEquals(end.toAppUsageSnapshot(), store.ends["A"])
+    }
+
     @Test fun plugInWaitsTenSecondsThenStoresTheEndAndTheDelta() = runTest {
         store.openDischarge("A")
         store.baselines["A"] = baseline(100, 1 to 1.0, 2 to 5.0)
