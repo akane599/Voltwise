@@ -5,14 +5,18 @@ import androidx.datastore.preferences.core.intPreferencesKey
 
 /** The raw retention choice shared by migration, age cleanup, and Settings' not-set state. */
 sealed interface Retention {
-    data class Days(val days: Long) : Retention
+    data class Days(val days: Long) : Retention {
+        init {
+            require(days > 0)
+        }
+    }
     data object Forever : Retention
     data object Unset : Retention
 }
 
 internal val RETENTION_INDEX = intPreferencesKey("data_retention_index")
 
-/** Missing legacy/fresh choices use the default; recovered or invalid choices never authorize deletion. */
+/** Missing choices use the default unless settings were recovered; a missing-after-recovery or out-of-range index never authorizes deletion. */
 fun resolveRetention(prefs: Preferences): Retention {
     val index = prefs[RETENTION_INDEX]
         ?: if (prefs[SETTINGS_RECOVERED] == true) return Retention.Unset else AppSettings().dataRetentionIndex
