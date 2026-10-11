@@ -8,6 +8,7 @@ import com.akane.voltwise.battery.insights.InsightInputsBuilder
 import com.akane.voltwise.battery.insights.InsightRepository
 import com.akane.voltwise.battery.insights.actions.ActionResult
 import com.akane.voltwise.battery.insights.actions.InsightActionRepository
+import com.akane.voltwise.battery.insights.actions.undoable
 import com.akane.voltwise.battery.insights.engine.eligibility.AppWindows
 import com.akane.voltwise.battery.insights.model.*
 import com.akane.voltwise.battery.util.ShellRunner
@@ -70,11 +71,6 @@ class DefaultInsightsRepository(
     override suspend fun apply(finding: Finding, recommendation: Recommendation) = actionRepository.apply(finding, recommendation)
     override suspend fun undo(actionId: Long) = actionRepository.undo(actionId)
 }
-
-internal fun InsightActionEntity.undoable(): Boolean =
-    type != ActionType.FORCE_STOP.name && status in listOf(
-        InsightActionStatus.APPLIED, InsightActionStatus.PREPARED, InsightActionStatus.UNKNOWN,
-    )
 
 internal fun Finding.toInsightState(
     privileged: Boolean,

@@ -67,7 +67,7 @@ object FindingCodec {
             payload.series.map { SeriesPoint(it.atMs, it.value, it.baselineLow, it.baselineHigh) },
             payload.recommendations.mapNotNull {
                 val action = enumName<ActionType>(it.action) ?: return@mapNotNull null
-                Recommendation(action, action.reversible, action.requiresPrivilege)
+                Recommendation(action)
             },
             if (entity.evidenceVersion == 1) emptyList() else payload.attributions.mapNotNull {
                 val kind = enumName<AttributionKind>(it.kind) ?: return@mapNotNull null

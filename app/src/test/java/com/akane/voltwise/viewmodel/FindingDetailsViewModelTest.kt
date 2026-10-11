@@ -54,7 +54,7 @@ class FindingDetailsViewModelTest {
     @Test fun dozeRemovalAfterReportDisablesFixUntilNewerAnalysis() = runTest {
         val finding = insightFinding().copy(
             type = FindingType.DOZE_WHITELISTED_DRAINER,
-            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
         )
         val report = InsightReport(10, listOf(finding), finding)
         source.report.value = report

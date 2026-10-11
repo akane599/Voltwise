@@ -156,7 +156,7 @@ class TargetInspectorDeviceTest {
             "device-test:$pkg", FindingType.BACKGROUND_RUNAWAY, Severity.HIGH, Confidence.HIGH, 1.0,
             Subject.App(uid, pkg), null, emptyList(), emptyList(), emptyList(),
         ),
-        Recommendation(action, action.reversible, action.requiresPrivilege),
+        Recommendation(action),
     )
 
     private fun requireOwnerUser() {

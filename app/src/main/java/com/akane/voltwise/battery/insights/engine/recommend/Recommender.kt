@@ -49,7 +49,7 @@ object Recommender {
                     (action == ActionType.RESTRICT_BACKGROUND || action == ActionType.STANDBY_BUCKET_RESTRICTED ||
                         action == ActionType.STANDBY_BUCKET_RARE))
         }.map { action ->
-            Recommendation(action, action.reversible, action.requiresPrivilege)
+            Recommendation(action)
         })
     }
 

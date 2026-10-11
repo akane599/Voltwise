@@ -144,7 +144,10 @@ sealed interface Subject {
 
 data class Evidence(val metric: Metric, val observed: Double, val baseline: Double?, val unit: MetricUnit, val sessions: Int)
 data class SeriesPoint(val atMs: Long, val value: Double, val baselineLow: Double?, val baselineHigh: Double?)
-data class Recommendation(val action: ActionType, val reversible: Boolean, val requiresPrivilege: Boolean)
+data class Recommendation(val action: ActionType) {
+    val reversible get() = action.reversible
+    val requiresPrivilege get() = action.requiresPrivilege
+}
 
 enum class SessionKind { CHARGE, DISCHARGE, PLUGGED }
 enum class WindowBasis { DELTA, ABSOLUTE, WINDOW_RESET }

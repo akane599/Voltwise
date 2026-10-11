@@ -645,7 +645,7 @@ class InsightsViewModelTest {
     @Test fun highBatteryAlertMessageCarriesNotificationsBlockedInStateAndEffect() = runTest {
         val finding = insightFinding().copy(
             subject = Subject.Device,
-            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, false, false)),
+            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT)),
         )
         source.report.value = InsightReport(1, listOf(finding), finding)
         val vm = start()
@@ -751,7 +751,7 @@ class InsightsViewModelTest {
     @Test fun dozeRemovalAfterReportDisablesCardsAndClearsSavedPending() = runTest {
         val finding = insightFinding().copy(
             type = FindingType.DOZE_WHITELISTED_DRAINER,
-            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
         )
         val report = InsightReport(10, listOf(finding), finding)
         source.report.value = report
@@ -1019,7 +1019,7 @@ internal fun insightFinding() = Finding(
     Subject.App(10042, "example.app"), Direction.UP,
     listOf(Evidence(Metric.POWER_MAH_PER_H, 10.0, 2.0, MetricUnit.MAH_PER_H, 4)),
     listOf(SeriesPoint(10, 10.0, 1.0, 3.0)),
-    listOf(Recommendation(ActionType.RESTRICT_BACKGROUND, true, true), Recommendation(ActionType.OPEN_APP_SETTINGS, false, false)),
+    listOf(Recommendation(ActionType.RESTRICT_BACKGROUND), Recommendation(ActionType.OPEN_APP_SETTINGS)),
 )
 
 internal fun insightAction(id: Long = 7, status: InsightActionStatus = InsightActionStatus.APPLIED) = InsightActionEntity(
