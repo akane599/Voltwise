@@ -4,6 +4,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiagnosticLogTest {
+    @Test fun legacyDiagnosticNamesStillDecodeUnchanged() {
+        val legacyNames = listOf(
+            "MONITORING_STARTED", "MONITORING_STOPPED", "START_FAILED", "BATTERY_UNAVAILABLE", "BATTERY_READ_FAILED",
+            "STATE_EVENTS_UNAVAILABLE", "HISTORY_WRITE_FAILED", "OBSERVATION_GAP", "CHARGE_UNAVAILABLE",
+            "ACCESS_NONE", "ACCESS_SHIZUKU", "ACCESS_ROOT", "ACCESS_ADB", "ADVANCED_READ_FAILED", "ADVANCED_FORMAT_INVALID",
+            "ADVANCED_INTERRUPTED", "ADVANCED_RECOVERED", "SYSTEM_STATS_RESET", "ALERT_FAILED", "NOTIFICATION_FAILED",
+            "LOG_READ_FAILED", "APP_SCOPE_FAILED", "ADVANCED_INCOMPLETE",
+        )
+        val restored = DiagnosticLog.decode("BatStatsDiagnostics1" + legacyNames.joinToString("") { "\n$it\t100\t200\t2" })
+        assertEquals(legacyNames, restored.map { it.code.name })
+        assertEquals(legacyNames, DiagnosticCode.entries.take(legacyNames.size).map { it.name })
+        assertTrue(restored.all { it.firstAt == 100L && it.lastAt == 200L && it.count == 2 })
+    }
+
+    @Test fun dozeWhitelistCodesPersistAndAppearInDiagnosticReport() {
+        val codes = listOf(DiagnosticCode.DOZE_WHITELIST_READ_FAILED, DiagnosticCode.DOZE_WHITELIST_FORMAT_INVALID)
+        val log = DiagnosticLog()
+        codes.forEach { log.record(it, 100); log.record(it, 200) }
+        val restored = DiagnosticLog.decode(DiagnosticLog.encode(log.snapshot()))
+        assertEquals(codes.map { DiagnosticEvent(it, 100, 200, count = 2) }, restored)
+        codes.forEach { assertTrue(DiagnosticReport.events(restored).contains("${it.name} · 2")) }
+    }
+
     @Test fun advancedIncompletePersistsAndAppearsInDiagnosticReport() {
         val log = DiagnosticLog()
         log.record(DiagnosticCode.ADVANCED_INCOMPLETE, 100)
