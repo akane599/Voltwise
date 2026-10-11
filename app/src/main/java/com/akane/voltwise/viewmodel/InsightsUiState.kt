@@ -34,11 +34,12 @@ data class InsightFindingState(
 @Immutable
 data class RecommendationState(
     val action: ActionType,
-    val reversible: Boolean,
-    val requiresPrivilege: Boolean,
     val available: Boolean,
     val alreadyApplied: Boolean,
-)
+) {
+    val reversible get() = action.reversible
+    val requiresPrivilege get() = action.requiresPrivilege
+}
 
 @Immutable
 data class AppliedInsightAction(

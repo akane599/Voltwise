@@ -55,10 +55,9 @@ private val labels = mapOf(
 
 private fun rec(
     action: ActionType,
-    privileged: Boolean = true,
     available: Boolean = true,
     applied: Boolean = false,
-) = RecommendationState(action, action != ActionType.FORCE_STOP, privileged, available, applied)
+) = RecommendationState(action, available, applied)
 
 private fun finding(
     type: FindingType,
@@ -85,19 +84,19 @@ private fun finding(
 private val drainHeadline = finding(
     FindingType.APP_DRAIN_ANOMALY, youtube, Severity.HIGH, Confidence.HIGH,
     Evidence(Metric.POWER_MAH_PER_H, 41.6, 13.0, Metric.POWER_MAH_PER_H.unit, 6),
-    listOf(rec(ActionType.RESTRICT_BACKGROUND), rec(ActionType.STANDBY_BUCKET_RESTRICTED), rec(ActionType.OPEN_APP_SETTINGS, privileged = false)),
+    listOf(rec(ActionType.RESTRICT_BACKGROUND), rec(ActionType.STANDBY_BUCKET_RESTRICTED), rec(ActionType.OPEN_APP_SETTINGS)),
 )
 
 private val wakeups = finding(
     FindingType.WAKEUP_STORM, weather, Severity.MEDIUM, Confidence.MEDIUM,
     Evidence(Metric.WAKEUP_ALARMS_PER_H, 48.0, 6.0, Metric.WAKEUP_ALARMS_PER_H.unit, 5),
-    listOf(rec(ActionType.STANDBY_BUCKET_RESTRICTED), rec(ActionType.OPEN_APP_SETTINGS, privileged = false)),
+    listOf(rec(ActionType.STANDBY_BUCKET_RESTRICTED), rec(ActionType.OPEN_APP_SETTINGS)),
 )
 
 private val dozeBlocked = finding(
     FindingType.DOZE_BLOCKED, Subject.Device, Severity.MEDIUM, Confidence.HIGH,
     Evidence(Metric.DEEP_DOZE_SHARE, 0.12, 0.64, Metric.DEEP_DOZE_SHARE.unit, 7),
-    listOf(rec(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS, privileged = false)),
+    listOf(rec(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS)),
 )
 
 private val lingering = finding(
@@ -154,7 +153,7 @@ private val notPrivileged = InsightsUiState(
         finding(
             FindingType.SCREEN_OFF_DRAIN_HIGH, Subject.Device, Severity.LOW, Confidence.MEDIUM,
             Evidence(Metric.SCREEN_OFF_PCT_PER_H, 2.6, 1.1, Metric.SCREEN_OFF_PCT_PER_H.unit, 6),
-            listOf(rec(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS, privileged = false)),
+            listOf(rec(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS)),
         ),
         drainHeadline.copy(
             severity = Severity.MEDIUM,

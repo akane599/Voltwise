@@ -31,7 +31,16 @@ class InsightsLogicTest {
     )
 
     private fun rec(action: ActionType, available: Boolean, applied: Boolean = false) =
-        RecommendationState(action, reversible = true, requiresPrivilege = true, available = available, alreadyApplied = applied)
+        RecommendationState(action, available = available, alreadyApplied = applied)
+
+    @Test
+    fun `recommendation flags derive from the action`() {
+        ActionType.entries.forEach {
+            val state = rec(it, available = true)
+            assertEquals(it.reversible, state.reversible)
+            assertEquals(it.requiresPrivilege, state.requiresPrivilege)
+        }
+    }
 
     @Test
     fun `evidence above a positive baseline reads as a ratio of usual`() {

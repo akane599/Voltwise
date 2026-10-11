@@ -95,7 +95,7 @@ internal fun Finding.toInsightState(
                     Subject.Device -> rec.action == ActionType.ENABLE_HIGH_BATTERY_ALERT || row.findingKey == key
                 }
         }
-        RecommendationState(rec.action, rec.reversible, rec.requiresPrivilege, (!rec.requiresPrivilege || privileged) && !applied, applied)
+        RecommendationState(rec.action, (!rec.requiresPrivilege || privileged) && !applied, applied)
     }.insightSnapshot(),
     attributions.insightSnapshot(),
 )
