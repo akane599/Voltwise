@@ -75,7 +75,6 @@ import com.akane.voltwise.viewmodel.InsightMessageCode
 import com.akane.voltwise.viewmodel.InsightUiEffect
 import com.akane.voltwise.viewmodel.InsightsEvent
 import com.akane.voltwise.viewmodel.RecommendationState
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -103,13 +102,13 @@ fun FindingDetailsScreen(
     val back by rememberUpdatedState(onBack)
     var leaving by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    val openSettings = rememberSettingsOpener()
+    val openSettings = rememberSettingsOpener(snackbar)
     LaunchedEffect(vm) {
         vm.effects.collect { effect ->
             when (effect) {
                 // The snackbar follows the ViewModel's held result (state.apply.lastResult), which survives rotation.
                 is InsightUiEffect.Message -> if (effect.result.code == InsightMessageCode.FEEDBACK_FAILED) leaving = false
-                is InsightUiEffect.OpenSettings -> openSettings(effect.spec)?.let { launch { snackbar.showSnackbar(it) } }
+                is InsightUiEffect.OpenSettings -> openSettings(effect.spec)
                 is InsightUiEffect.OpenFinding -> Unit
             }
         }

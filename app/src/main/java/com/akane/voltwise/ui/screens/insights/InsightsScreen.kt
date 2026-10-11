@@ -30,7 +30,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +55,6 @@ import com.akane.voltwise.viewmodel.InsightsEvent
 import com.akane.voltwise.viewmodel.InsightsUiState
 import com.akane.voltwise.viewmodel.InsightsViewModel
 import com.akane.voltwise.viewmodel.RecommendationState
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -82,13 +80,13 @@ fun InsightsScreen(
     val appInfo: AppInfoSource = koinInject()
     val openFinding by rememberUpdatedState(onOpenFinding)
     val snackbar = remember { SnackbarHostState() }
-    val openSettings = rememberSettingsOpener()
+    val openSettings = rememberSettingsOpener(snackbar)
     LaunchedEffect(vm) {
         vm.effects.collect { effect ->
             when (effect) {
                 // The snackbar follows the ViewModel's held result (state.apply.lastResult), which survives rotation.
                 is InsightUiEffect.Message -> Unit
-                is InsightUiEffect.OpenSettings -> openSettings(effect.spec)?.let { launch { snackbar.showSnackbar(it) } }
+                is InsightUiEffect.OpenSettings -> openSettings(effect.spec)
                 is InsightUiEffect.OpenFinding -> openFinding(effect.key)
             }
         }
@@ -129,12 +127,11 @@ internal fun ResultSnackbar(
     onEvent: (InsightsEvent) -> Unit,
     silentCodes: Set<InsightMessageCode> = emptySet(),
 ) {
-    val text = result?.let { stringResource(it.messageRes()) }
+    val text = result?.let { stringResource(it.code.messageRes()) }
     val actionLabel = result?.actionLabelRes()?.let { stringResource(it) }
-    val openSettings = rememberSettingsOpener()
+    // Holds its notice outside this result's effect, which the consume below cancels.
+    val openSettings = rememberSettingsOpener(snackbar)
     val context = LocalContext.current
-    // Outlives this result's effect, which the consume below cancels.
-    val scope = rememberCoroutineScope()
     val currentOnEvent by rememberUpdatedState(onEvent)
     LaunchedEffect(result) {
         if (result == null || text == null) return@LaunchedEffect
@@ -143,7 +140,7 @@ internal fun ResultSnackbar(
             val duration = if (actionLabel == null) SnackbarDuration.Short else SnackbarDuration.Long
             val shown = snackbar.showSnackbar(text, actionLabel, duration = duration)
             if (shown == SnackbarResult.ActionPerformed) {
-                openSettings(notificationSettings(context.packageName))?.let { scope.launch { snackbar.showSnackbar(it) } }
+                openSettings(notificationSettings(context.packageName))
             }
         }
         currentOnEvent(InsightsEvent.ResultShown(result))
