@@ -4,10 +4,16 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.preferencesOf
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class RetentionTest {
     private val key = intPreferencesKey("data_retention_index")
+
+    @Test fun daysMustBePositive() {
+        assertThrows(IllegalArgumentException::class.java) { Retention.Days(0) }
+        assertThrows(IllegalArgumentException::class.java) { Retention.Days(-1) }
+    }
 
     @Test fun eachFiniteIndexResolvesToItsDays() {
         listOf(7L, 30L, 90L, 180L, 365L).forEachIndexed { index, days ->
