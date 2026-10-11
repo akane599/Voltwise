@@ -7,7 +7,6 @@ import com.akane.voltwise.battery.insights.UnusedInsightDao
 import com.akane.voltwise.battery.insights.model.*
 import com.akane.voltwise.battery.util.ExecutionCertainty
 import com.akane.voltwise.battery.util.ShellRunner
-import com.akane.voltwise.viewmodel.undoable
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -28,7 +27,7 @@ class InsightActionRepositoryTest {
         "finding", FindingType.BACKGROUND_RUNAWAY, Severity.HIGH, Confidence.HIGH, 1.0,
         subject, null, emptyList(), emptyList(), emptyList(),
     )
-    private fun rec(type: ActionType) = Recommendation(type, true, true)
+    private fun rec(type: ActionType) = Recommendation(type)
     private fun ok(output: String = "") = ShellRunner.Outcome.Success(output, ShellRunner.Mode.ROOT)
     private fun denied() = ShellRunner.Outcome.NoAccess(ShellRunner.Mode.NONE, "sensitive diagnostic")
     private fun failure() = ShellRunner.Outcome.Failure(ShellRunner.Mode.ROOT, "sensitive diagnostic")
@@ -150,6 +149,49 @@ class InsightActionRepositoryTest {
             assertEquals(prepared.createdAt, f.row().appliedAt)
             assertNotNull(f.row().revertedAt)
             assertFalse(f.row().undoable())
+        }
+    }
+
+    @Test fun undoableMatchesEveryActionTypeAndJournalStatus() {
+        for (type in ActionType.entries) {
+            for (status in InsightActionStatus.entries) {
+                val row = InsightActionEntity(
+                    findingKey = "finding", type = type.name, packageName = pkg, uid = uid,
+                    userId = 0, status = status, priorStateVersion = 1, createdAt = 1,
+                )
+                val expected = status in setOf(APPLIED, PREPARED, UNKNOWN) && type.reversible && type.requiresPrivilege
+                assertEquals("$type / $status Undo eligibility", expected, row.undoable())
+            }
+        }
+    }
+
+    @Test fun unknownActionTypeIsNotUndoableAndNeverRunsCommands() = runTest {
+        val f = Fixture()
+        val id = f.dao.insertAction(InsightActionEntity(
+            findingKey = "finding", type = "FUTURE_ACTION", packageName = pkg, uid = uid,
+            userId = 0, status = APPLIED, priorStateVersion = 1,
+            priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+        ))
+        val stored = f.row()
+        assertFalse("unknown action must not gain Undo", stored.undoable())
+        assertEquals(ActionResult.Failed(FailureCode.NOT_UNDOABLE), f.repo.undo(id))
+        assertEquals(stored, f.row())
+        assertTrue("unknown action must not run even a read command", f.commands.isEmpty())
+    }
+
+    @Test fun knownUndoableActionWithMissingIdentityIsInvalidWithoutCommands() = runTest {
+        for ((packageName, storedUid) in listOf(null to uid, pkg to null)) {
+            val f = Fixture()
+            val id = f.dao.insertAction(InsightActionEntity(
+                findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+                packageName = packageName, uid = storedUid, userId = 0, status = APPLIED,
+                priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+            ))
+            val stored = f.row()
+            assertTrue(stored.undoable())
+            assertEquals(ActionResult.Failed(FailureCode.INVALID_JOURNAL), f.repo.undo(id))
+            assertEquals(stored, f.row())
+            assertTrue(f.commands.isEmpty())
         }
     }
 

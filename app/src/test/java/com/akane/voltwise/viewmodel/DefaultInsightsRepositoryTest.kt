@@ -41,6 +41,13 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DefaultInsightsRepositoryTest {
+    @Test fun unknownActionTypeHasNoUndoInHistory() {
+        val row = insightAction().copy(type = "FUTURE_ACTION")
+        val history = actionStates(listOf(row), emptyList()).single()
+        assertEquals(null, history.action)
+        assertFalse("unknown action must not be offered for Undo", history.undoable)
+    }
+
     @Test fun revertedActionWithSharedMessageShowsChangedExternally() {
         assertEquals("CHANGED_EXTERNALLY", MESSAGE_CHANGED_EXTERNALLY)
         val row = insightAction(status = InsightActionStatus.REVERTED).copy(message = MESSAGE_CHANGED_EXTERNALLY)
@@ -70,7 +77,7 @@ class DefaultInsightsRepositoryTest {
         val finding = insightFinding().copy(
             type = FindingType.CHARGING_AT_FULL,
             subject = Subject.Device,
-            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, false, false)),
+            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT)),
         )
         for (appliedAt in listOf(10L, 11L)) {
             val row = insightAction(status = InsightActionStatus.ONE_SHOT).copy(
@@ -91,7 +98,7 @@ class DefaultInsightsRepositoryTest {
         val finding = insightFinding().copy(
             type = FindingType.CHARGING_AT_FULL,
             subject = Subject.Device,
-            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, false, false)),
+            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT)),
         )
         val row = insightAction(status = InsightActionStatus.ONE_SHOT).copy(
             type = ActionType.ENABLE_HIGH_BATTERY_ALERT.name,
@@ -113,7 +120,7 @@ class DefaultInsightsRepositoryTest {
             key = "hot-charging",
             type = FindingType.HOT_CHARGING,
             subject = Subject.Device,
-            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, false, false)),
+            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT)),
         )
         for (createdAt in listOf(9L, 10L, 11L)) {
             val row = insightAction(status = InsightActionStatus.ONE_SHOT).copy(
@@ -133,7 +140,7 @@ class DefaultInsightsRepositoryTest {
         val chargingAtFull = insightFinding().copy(
             type = FindingType.CHARGING_AT_FULL,
             subject = Subject.Device,
-            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, false, false)),
+            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT)),
         )
         val hotCharging = chargingAtFull.copy(key = "hot-charging", type = FindingType.HOT_CHARGING)
         val report = InsightReport(10, listOf(chargingAtFull, hotCharging), chargingAtFull)
@@ -155,7 +162,7 @@ class DefaultInsightsRepositoryTest {
 
     @Test fun oneShotHighBatteryAlertDoesNotApplyToAppFinding() {
         val finding = insightFinding().copy(
-            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT, false, false)),
+            recommendations = listOf(Recommendation(ActionType.ENABLE_HIGH_BATTERY_ALERT)),
         )
         val row = insightAction(status = InsightActionStatus.ONE_SHOT).copy(
             type = ActionType.ENABLE_HIGH_BATTERY_ALERT.name,
@@ -168,7 +175,7 @@ class DefaultInsightsRepositoryTest {
 
     @Test fun oneShotForceStopRemainsRepeatableAndUnavailableForUndo() {
         val finding = insightFinding().copy(
-            recommendations = listOf(Recommendation(ActionType.FORCE_STOP, false, true)),
+            recommendations = listOf(Recommendation(ActionType.FORCE_STOP)),
         )
         val row = insightAction(status = InsightActionStatus.ONE_SHOT).copy(
             type = ActionType.FORCE_STOP.name,
@@ -182,7 +189,7 @@ class DefaultInsightsRepositoryTest {
     }
 
     @Test fun uncertainForceStopHasNoUndoOrAppliedBadgeAndAllowsDeliberateRetry() {
-        val finding = insightFinding().copy(recommendations = listOf(Recommendation(ActionType.FORCE_STOP, false, true)))
+        val finding = insightFinding().copy(recommendations = listOf(Recommendation(ActionType.FORCE_STOP)))
         val row = insightAction(status = InsightActionStatus.UNKNOWN).copy(
             type = ActionType.FORCE_STOP.name, appliedAt = null, priorState = null, targetState = null,
         )
@@ -195,7 +202,7 @@ class DefaultInsightsRepositoryTest {
     @Test fun dozeRemovalAfterStoredReportIsAppliedAndUnavailable() {
         val finding = insightFinding().copy(
             type = FindingType.DOZE_WHITELISTED_DRAINER,
-            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
         )
         val report = InsightReport(10, listOf(finding), finding)
         val row = insightAction().copy(
@@ -214,7 +221,7 @@ class DefaultInsightsRepositoryTest {
     @Test fun unknownDozeRemovalUsesCreatedAtWhenAppliedAtIsMissing() {
         val finding = insightFinding().copy(
             type = FindingType.DOZE_WHITELISTED_DRAINER,
-            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
         )
         val report = InsightReport(10, listOf(finding), finding)
         for (createdAt in listOf(9L, 10L, 11L)) {
@@ -232,7 +239,7 @@ class DefaultInsightsRepositoryTest {
     @Test fun dozeRemovalAtReportTimeStillCountsAsApplied() {
         val finding = insightFinding().copy(
             type = FindingType.DOZE_WHITELISTED_DRAINER,
-            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
         )
         val row = insightAction().copy(type = ActionType.REMOVE_DOZE_WHITELIST.name, appliedAt = 10)
         val recommendation = finding.toInsightState(true, listOf(row), generatedAtMs = 10).recommendations.single()
@@ -243,7 +250,7 @@ class DefaultInsightsRepositoryTest {
     @Test fun liveDozeWhitelistFindingAllowsRemovalAgainDespiteUndoableRow() {
         val finding = insightFinding().copy(
             type = FindingType.DOZE_WHITELISTED_DRAINER,
-            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+            recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
         )
         for (status in listOf(InsightActionStatus.APPLIED, InsightActionStatus.PREPARED, InsightActionStatus.UNKNOWN)) {
             val row = insightAction(status = status).copy(
@@ -266,7 +273,7 @@ class DefaultInsightsRepositoryTest {
         for (type in listOf(FindingType.APP_DRAIN_ANOMALY, FindingType.WAKEUP_STORM)) {
             val finding = insightFinding().copy(
                 type = type,
-                recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+                recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
             )
             for (status in listOf(InsightActionStatus.APPLIED, InsightActionStatus.PREPARED, InsightActionStatus.UNKNOWN)) {
                 for (timestamp in listOf(9L, 10L, 11L)) {
@@ -290,7 +297,7 @@ class DefaultInsightsRepositoryTest {
         for (type in listOf(FindingType.APP_DRAIN_ANOMALY, FindingType.WAKEUP_STORM)) {
             val finding = insightFinding().copy(
                 type = type,
-                recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST, true, true)),
+                recommendations = listOf(Recommendation(ActionType.REMOVE_DOZE_WHITELIST)),
             )
             val row = insightAction().copy(type = ActionType.REMOVE_DOZE_WHITELIST.name, appliedAt = 11)
             for (other in listOf(row.copy(packageName = "other.app"), row.copy(uid = row.uid!! + 100_000))) {
@@ -303,7 +310,7 @@ class DefaultInsightsRepositoryTest {
 
     @Test fun appliedBackgroundRestrictionRemainsAppliedAndUnavailable() {
         val finding = insightFinding().copy(
-            recommendations = listOf(Recommendation(ActionType.RESTRICT_BACKGROUND, true, true)),
+            recommendations = listOf(Recommendation(ActionType.RESTRICT_BACKGROUND)),
         )
 
         for (generatedAtMs in listOf(1L, 2L, 10L)) {
