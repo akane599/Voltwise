@@ -153,13 +153,20 @@ class InsightActionRepositoryTest {
     }
 
     @Test fun undoableMatchesEveryActionTypeAndJournalStatus() {
+        val undoableTypes = setOf(
+            ActionType.RESTRICT_BACKGROUND,
+            ActionType.STANDBY_BUCKET_RESTRICTED,
+            ActionType.STANDBY_BUCKET_RARE,
+            ActionType.REMOVE_DOZE_WHITELIST,
+        )
+        val undoableStatuses = setOf(APPLIED, PREPARED, UNKNOWN)
         for (type in ActionType.entries) {
             for (status in InsightActionStatus.entries) {
                 val row = InsightActionEntity(
                     findingKey = "finding", type = type.name, packageName = pkg, uid = uid,
                     userId = 0, status = status, priorStateVersion = 1, createdAt = 1,
                 )
-                val expected = status in setOf(APPLIED, PREPARED, UNKNOWN) && type.reversible && type.requiresPrivilege
+                val expected = status in undoableStatuses && type in undoableTypes
                 assertEquals("$type / $status Undo eligibility", expected, row.undoable())
             }
         }
@@ -301,6 +308,87 @@ class InsightActionRepositoryTest {
             listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
         assertEquals(failed, f.row())
         assertTrue(f.replies.isEmpty())
+    }
+
+    @Test fun preparedUndoAtTargetCompletesBeforeReconcileWhichCannotOverwriteReversion() = runTest {
+        val f = Fixture()
+        val id = f.dao.insertAction(InsightActionEntity(
+            findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+            packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+            priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+        ))
+        val prepared = f.row()
+        f.reply("rare", "", "active")
+        val entered = CompletableDeferred<Unit>()
+        val resume = CompletableDeferred<Unit>()
+        f.intercept = {
+            if (f.commands.size == 1) {
+                assertEquals(PrivilegedCommand.GetStandbyBucket(pkg), it)
+                entered.complete(Unit)
+                resume.await()
+            }
+        }
+        val undo = async { f.repo.undo(id) }
+        entered.await()
+        val reconcile = async { f.repo.reconcile(); f.row() }
+        runCurrent()
+        assertFalse("reconcile must wait for Undo's state read and settlement", reconcile.isCompleted)
+        assertEquals(prepared, f.row())
+        assertEquals(listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+
+        resume.complete(Unit)
+        assertEquals(ActionResult.Reverted, undo.await())
+        val reverted = prepared.copy(status = REVERTED, appliedAt = prepared.createdAt, revertedAt = 100)
+        assertEquals("waiting reconcile must not overwrite Undo's reversion", reverted, reconcile.await())
+        assertEquals(reverted, f.row())
+        assertEquals("reconcile must not read or write after Undo retires PREPARED authority", listOf(
+            PrivilegedCommand.GetStandbyBucket(pkg),
+            PrivilegedCommand.SetStandbyBucket(pkg, StandbyBucket.ACTIVE),
+            PrivilegedCommand.GetStandbyBucket(pkg),
+        ), f.commands)
+        assertTrue(f.replies.isEmpty())
+    }
+
+    @Test fun preparedUndoAtPriorCompletesBeforeReconcileWhichCannotOverwriteSettlement() = runTest {
+        for (appliedAt in listOf(null, 1L)) {
+            val f = Fixture()
+            val id = f.dao.insertAction(InsightActionEntity(
+                findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+                packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+                priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE",
+                createdAt = 1, appliedAt = appliedAt,
+            ))
+            val prepared = f.row()
+            f.reply("active")
+            val entered = CompletableDeferred<Unit>()
+            val resume = CompletableDeferred<Unit>()
+            f.intercept = {
+                assertEquals(PrivilegedCommand.GetStandbyBucket(pkg), it)
+                entered.complete(Unit)
+                resume.await()
+            }
+            val undo = async { f.repo.undo(id) }
+            entered.await()
+            val reconcile = async { f.repo.reconcile(); f.row() }
+            runCurrent()
+            assertFalse("reconcile must wait for Undo to retire PREPARED authority", reconcile.isCompleted)
+            assertEquals(prepared, f.row())
+            assertEquals(listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+
+            resume.complete(Unit)
+            val settled = if (appliedAt == null) {
+                assertEquals(ActionResult.Failed(FailureCode.NOT_APPLIED), undo.await())
+                prepared.copy(status = FAILED, message = FailureCode.STATE_MISMATCH.name)
+            } else {
+                assertEquals(ActionResult.Reverted, undo.await())
+                prepared.copy(status = REVERTED, revertedAt = 100)
+            }
+            assertEquals("waiting reconcile must not overwrite Undo's settlement", settled, reconcile.await())
+            assertEquals(settled, f.row())
+            assertEquals("reconcile must neither read nor restore the settled row",
+                listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+            assertTrue(f.replies.isEmpty())
+        }
     }
 
     @Test fun preparedUndoFailedCurrentReadLeavesJournalUnchanged() = runTest {

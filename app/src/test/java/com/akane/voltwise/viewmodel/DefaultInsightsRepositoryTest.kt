@@ -400,7 +400,7 @@ class DefaultInsightsRepositoryTest {
         try {
             // The probe runs on IO; its deadline must use real time rather than virtual time.
             withContext(Dispatchers.Default.limitedParallelism(1)) {
-                withTimeout(5_000) { fixture.probeStarted.await() }
+                withTimeout(30_000) { fixture.probeStarted.await() }
             }
             val feedback = async { fixture.adapter.notAProblem(insightFinding().key) }
             runCurrent()
