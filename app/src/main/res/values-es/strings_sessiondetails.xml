@@ -76,7 +76,7 @@
     <string name="sessiondetails_apps_title">Apps</string>
     <string name="sessiondetails_apps_basis_delta">Desde que se desconectó hasta que se conectó</string>
     <string name="sessiondetails_apps_basis_reset">Desde que Android reinició sus estadísticas, durante esta sesión</string>
-    <string name="sessiondetails_apps_basis_absolute">Desde la última carga completa (sin lectura al desconectar)</string>
+    <string name="sessiondetails_apps_basis_absolute">Desde la última carga completa (sin lectura comparable al desconectar)</string>
     <string name="sessiondetails_apps_so_far">Hasta ahora · actualizado %1$s</string>
     <string name="sessiondetails_apps_others">Otras apps</string>
     <string name="sessiondetails_apps_show_all">Mostrar todas</string>
