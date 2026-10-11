@@ -227,6 +227,144 @@ class InsightActionRepositoryTest {
         }
     }
 
+    @Test fun reconcileAtTargetCompletesBeforePreparedUndoAndCannotOverwriteReversion() = runTest {
+        val f = Fixture()
+        val id = f.dao.insertAction(InsightActionEntity(
+            findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+            packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+            priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+        ))
+        val prepared = f.row()
+        assertNull(prepared.appliedAt)
+        f.reply("rare", "rare", "", "active")
+        val entered = CompletableDeferred<Unit>()
+        val resume = CompletableDeferred<Unit>()
+        f.intercept = {
+            if (f.commands.size == 1) {
+                assertEquals(PrivilegedCommand.GetStandbyBucket(pkg), it)
+                entered.complete(Unit)
+                resume.await()
+            }
+        }
+        val reconcile = async { f.repo.reconcile(); f.row() }
+        entered.await()
+        val undo = async { f.repo.undo(id) }
+        runCurrent()
+        assertFalse("Undo must wait for reconcile's state read and settlement", undo.isCompleted)
+        assertEquals(prepared, f.row())
+        assertEquals(listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+
+        resume.complete(Unit)
+        assertEquals(prepared.copy(status = APPLIED, appliedAt = prepared.createdAt), reconcile.await())
+        assertEquals(ActionResult.Reverted, undo.await())
+        assertEquals(listOf(
+            PrivilegedCommand.GetStandbyBucket(pkg),
+            PrivilegedCommand.GetStandbyBucket(pkg),
+            PrivilegedCommand.SetStandbyBucket(pkg, StandbyBucket.ACTIVE),
+            PrivilegedCommand.GetStandbyBucket(pkg),
+        ), f.commands)
+        assertEquals("reconcile must not overwrite Undo with its stale PREPARED row",
+            prepared.copy(status = REVERTED, appliedAt = prepared.createdAt, revertedAt = 100), f.row())
+        assertTrue(f.replies.isEmpty())
+    }
+
+    @Test fun reconcileAtPriorCompletesBeforePreparedUndoWhichIsThenNotUndoable() = runTest {
+        val f = Fixture()
+        val id = f.dao.insertAction(InsightActionEntity(
+            findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+            packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+            priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+        ))
+        val prepared = f.row()
+        assertNull(prepared.appliedAt)
+        f.reply("active")
+        val entered = CompletableDeferred<Unit>()
+        val resume = CompletableDeferred<Unit>()
+        f.intercept = {
+            assertEquals(PrivilegedCommand.GetStandbyBucket(pkg), it)
+            entered.complete(Unit)
+            resume.await()
+        }
+        val reconcile = async { f.repo.reconcile(); f.row() }
+        entered.await()
+        val undo = async { f.repo.undo(id) }
+        runCurrent()
+        assertFalse("Undo must wait for reconcile to retire PREPARED authority", undo.isCompleted)
+        assertEquals(prepared, f.row())
+        assertEquals(listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+
+        resume.complete(Unit)
+        val failed = prepared.copy(status = FAILED)
+        assertEquals(failed, reconcile.await())
+        assertEquals(ActionResult.Failed(FailureCode.NOT_UNDOABLE), undo.await())
+        assertEquals("Undo must neither read nor restore after reconciliation fails the row",
+            listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+        assertEquals(failed, f.row())
+        assertTrue(f.replies.isEmpty())
+    }
+
+    @Test fun preparedUndoFailedCurrentReadLeavesJournalUnchanged() = runTest {
+        for ((outcome, result) in listOf(
+            failure() to ActionResult.Failed(FailureCode.READ_FAILED),
+            ok("garbage") to ActionResult.Failed(FailureCode.READ_FAILED),
+            denied() to ActionResult.Refused(RefusalCode.NOT_PRIVILEGED),
+        )) {
+            val f = Fixture()
+            val id = f.dao.insertAction(InsightActionEntity(
+                findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+                packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+                priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+            ))
+            val prepared = f.row()
+            f.replies.add(outcome)
+            assertEquals(result, f.repo.undo(id))
+            assertEquals("a failed initial read cannot settle or stamp the PREPARED row", prepared, f.row())
+            assertEquals(listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+            assertTrue(f.replies.isEmpty())
+        }
+    }
+
+    @Test fun preparedUndoAtThirdStateRetiresAuthorityWithoutRestoring() = runTest {
+        val f = Fixture()
+        val id = f.dao.insertAction(InsightActionEntity(
+            findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+            packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+            priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+        ))
+        val prepared = f.row()
+        f.reply("working_set")
+        assertEquals(ActionResult.ChangedExternally("WORKING_SET"), f.repo.undo(id))
+        assertEquals(prepared.copy(status = REVERTED, revertedAt = 100, message = MESSAGE_CHANGED_EXTERNALLY), f.row())
+        assertEquals(listOf(PrivilegedCommand.GetStandbyBucket(pkg)), f.commands)
+        assertTrue(f.replies.isEmpty())
+    }
+
+    @Test fun preparedUndoNoAccessDuringRestoreKeepsProvenApplicationAndUndoAuthority() = runTest {
+        val f = Fixture()
+        val id = f.dao.insertAction(InsightActionEntity(
+            findingKey = "finding", type = ActionType.STANDBY_BUCKET_RARE.name,
+            packageName = pkg, uid = uid, userId = 0, status = PREPARED,
+            priorStateVersion = 1, priorState = "ACTIVE", targetState = "RARE", createdAt = 1,
+        ))
+        val prepared = f.row()
+        f.replies.addAll(listOf(ok("rare"), denied()))
+        f.intercept = {
+            if (it is PrivilegedCommand.SetStandbyBucket) {
+                assertEquals("stamp proven application before attempting restore",
+                    prepared.copy(status = UNKNOWN, appliedAt = prepared.createdAt), f.row())
+            }
+        }
+        assertEquals(ActionResult.Refused(RefusalCode.NOT_PRIVILEGED), f.repo.undo(id))
+        assertEquals(prepared.copy(status = APPLIED, appliedAt = prepared.createdAt,
+            message = RefusalCode.NOT_PRIVILEGED.name), f.row())
+        assertTrue("loss of access must preserve Undo authority for a later retry", f.row().undoable())
+        assertEquals(listOf(
+            PrivilegedCommand.GetStandbyBucket(pkg),
+            PrivilegedCommand.SetStandbyBucket(pkg, StandbyBucket.ACTIVE),
+        ), f.commands)
+        assertTrue(f.replies.isEmpty())
+    }
+
     @Test fun bucketsRoundTripAndRestrictedFallback() = runTest {
         for ((sdk, type, target) in listOf(
             Triple(35, ActionType.STANDBY_BUCKET_RESTRICTED, StandbyBucket.RESTRICTED),

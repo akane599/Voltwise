@@ -24,6 +24,7 @@ import com.akane.voltwise.battery.util.ShellRunner
 import java.time.Clock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -34,6 +35,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -394,17 +397,20 @@ class DefaultInsightsRepositoryTest {
         fixture.insights.refresh()
         fixture.probeGate = CompletableDeferred()
         val refresh = async { fixture.adapter.analyzeNow() }
-        fixture.probeStarted.await()
-        val feedback = async { fixture.adapter.notAProblem(insightFinding().key) }
-        runCurrent()
         try {
+            // The probe runs on IO; its deadline must use real time rather than virtual time.
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(5_000) { fixture.probeStarted.await() }
+            }
+            val feedback = async { fixture.adapter.notAProblem(insightFinding().key) }
+            runCurrent()
             assertTrue("Feedback must not wait for an access probe outside analysis", feedback.isCompleted)
             assertFalse(refresh.isCompleted)
             assertEquals(1.5, fixture.rows.value.single().feedbackMultiplier, 0.0)
+            feedback.await()
         } finally {
             fixture.probeGate!!.complete(Unit)
         }
-        feedback.await()
         refresh.await()
     }
 
