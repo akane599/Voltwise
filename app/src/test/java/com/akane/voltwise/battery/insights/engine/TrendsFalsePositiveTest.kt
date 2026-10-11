@@ -18,7 +18,8 @@ import kotlin.random.Random
  * each comparison lane, counting either direction. This keeps at least 98% of unchanged
  * histories silent; it is a fixed-seed regression budget, not a confidence-interval claim.
  * Power must be >=90% (450/500) for a realistic +40% shift sustained over all seven recent days,
- * so a stricter rule cannot pass by always staying silent.
+ * so a stricter rule cannot pass by always staying silent. That known gap remains ignored; an
+ * active +100% sustained-shift control requires the same >=450/500 bound through Trends.detect.
  *
  * Trends.detect compares the last seven completed days with the preceding 21. We supply all
  * 28 days and one eligible, measured one-hour app window per day, exercising both callers of
@@ -29,6 +30,9 @@ import kotlin.random.Random
  * AR(1) uses phi=.7 and marginal CV=.2: innovation SD is CV*sqrt(1-phi^2). A 128-step burn-in
  * removes the zero-start transient. All distributions have positive support, without clipping
  * or per-trial recentering. Seeds 37301..37305 were fixed before the first execution.
+ * Held-out seeds add 1,000,000, fixed before measuring, using identical generators. Their device
+ * and app counts are reported beside every asserted count, never asserted. The +100% control
+ * uses the existing power seed 37305, not a selected seed.
  *
  * SQ-373 initial unignored run (each lane, out of 500): flat 0, IID CV .2 74,
  * IID CV .5 292, AR1 120 false fires; sustained-shift detections 423. Only the four
@@ -52,18 +56,29 @@ class TrendsFalsePositiveTest {
         assertStationary("AR1 phi .7 CV .2", cv = 0.2, phi = 0.7, seed = 37304)
 
     @Ignore("SQ-373: bound fails, see report")
-    @Test fun `sustained forty percent shift at CV 0_2 fires in at least ninety percent`() {
-        val counts = countFindings(cv = 0.2, seed = 37305, shift = 1.4)
-        val report = "40% sustained UP shift CV .2 seed 37305: device ${counts.first}/$TRIALS, " +
-            "app ${counts.second}/$TRIALS; minimum $MIN_DETECTIONS/$TRIALS"
+    @Test fun `sustained forty percent shift at CV 0_2 fires in at least ninety percent`() =
+        assertShift(1.4)
+
+    @Test fun `sustained hundred percent shift at CV 0_2 fires in at least ninety percent`() =
+        assertShift(2.0)
+
+    private fun assertShift(shift: Double) {
+        val counts = countFindings(cv = 0.2, seed = 37305, shift = shift)
+        val heldOut = countFindings(cv = 0.2, seed = 37305 + HELD_OUT_OFFSET, shift = shift)
+        val report = "${((shift - 1.0) * 100).roundToLong()}% sustained UP shift CV .2 seed 37305: " +
+            "device ${counts.first}/$TRIALS, app ${counts.second}/$TRIALS; " +
+            "held-out device ${heldOut.first}/$TRIALS, app ${heldOut.second}/$TRIALS; " +
+            "minimum $MIN_DETECTIONS/$TRIALS"
         println(report)
         assertTrue(report, counts.first >= MIN_DETECTIONS && counts.second >= MIN_DETECTIONS)
     }
 
     private fun assertStationary(label: String, cv: Double, seed: Int, phi: Double = 0.0) {
         val counts = countFindings(cv, seed, phi)
+        val heldOut = countFindings(cv, seed + HELD_OUT_OFFSET, phi)
         val report = "$label seed $seed false fires: device ${counts.first}/$TRIALS, " +
-            "app ${counts.second}/$TRIALS; maximum $MAX_FALSE_FIRES/$TRIALS"
+            "app ${counts.second}/$TRIALS; held-out device ${heldOut.first}/$TRIALS, " +
+            "app ${heldOut.second}/$TRIALS; maximum $MAX_FALSE_FIRES/$TRIALS"
         println(report)
         assertTrue(report, counts.first <= MAX_FALSE_FIRES && counts.second <= MAX_FALSE_FIRES)
     }
@@ -115,5 +130,6 @@ class TrendsFalsePositiveTest {
         const val TRIALS = 500
         const val MAX_FALSE_FIRES = 10
         const val MIN_DETECTIONS = 450
+        const val HELD_OUT_OFFSET = 1_000_000
     }
 }
