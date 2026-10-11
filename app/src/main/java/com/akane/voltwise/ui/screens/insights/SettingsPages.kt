@@ -5,14 +5,24 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.annotation.StringRes
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.akane.voltwise.R
 import com.akane.voltwise.battery.insights.actions.IntentSpec
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * The settings pages to try for [spec], in order, until one opens: the page asked for, then the app's details page
@@ -50,12 +60,13 @@ internal fun openFirst(spec: IntentSpec, start: (IntentSpec) -> Unit): Int? =
 internal fun openSettingsPage(context: Context, spec: IntentSpec): Int? =
     openFirst(spec) { context.startActivity(it.toIntent()) }
 
-/** What to tell the user after a settings page was opened. */
+/** What to tell the user after trying to open a settings page: a fallback page opened, or none could be opened. */
 internal enum class SettingsNotice { UNAVAILABLE, FALLBACK, BATTERY_OPTIMIZATION_FALLBACK }
 
 /**
- * The notice for [spec] once [openFirst] returned [opened]: none when the page asked for opened; a fallback page
- * says it isn't the one asked for (with where to find battery optimization when that was the page).
+ * The notice for [spec] once [openFirst] returned [opened]: none when the page asked for opened;
+ * [SettingsNotice.UNAVAILABLE] when no page opened at all; otherwise a fallback page opened, and the notice says it
+ * isn't the one asked for (with where to find battery optimization when that was the page).
  */
 internal fun settingsNotice(spec: IntentSpec, opened: Int?): SettingsNotice? = when {
     opened == null -> SettingsNotice.UNAVAILABLE
@@ -64,25 +75,44 @@ internal fun settingsNotice(spec: IntentSpec, opened: Int?): SettingsNotice? = w
     else -> SettingsNotice.FALLBACK
 }
 
+/** A notice's snackbar text. */
+@StringRes
+internal fun SettingsNotice.messageRes(): Int = when (this) {
+    SettingsNotice.UNAVAILABLE -> R.string.insights_settings_unavailable
+    SettingsNotice.FALLBACK -> R.string.insights_settings_fallback
+    SettingsNotice.BATTERY_OPTIMIZATION_FALLBACK -> R.string.insights_settings_fallback_battery_optimization
+}
+
 /**
- * Remembers a function that opens a settings page with [openSettingsPage] and returns the snackbar text its
- * [settingsNotice] calls for, or null when the page asked for opened. Its text follows the current locale.
+ * Waits until [lifecycleState] is at least RESUMED, then calls [show] once. A settings page covers the app (STARTED
+ * or below) until the user comes back, so a notice shown at once would expire unseen.
+ */
+internal suspend fun showOnceResumed(lifecycleState: Flow<Lifecycle.State>, show: suspend () -> Unit) {
+    lifecycleState.first { it.isAtLeast(Lifecycle.State.RESUMED) }
+    show()
+}
+
+/**
+ * Remembers a function that opens a settings page with [openSettingsPage] and holds the [settingsNotice] it calls
+ * for, if any. The held notice survives recreation and shows in [snackbar] (Long, in the current locale) once the
+ * app is resumed again, which is at once when nothing opened; it is cleared once that snackbar has gone. It lives in
+ * this composable's state, not in the caller's effect, so consuming the effect that opened the page doesn't drop it.
  */
 @Composable
-internal fun rememberSettingsOpener(): (IntentSpec) -> String? {
+internal fun rememberSettingsOpener(snackbar: SnackbarHostState): (IntentSpec) -> Unit {
     val context = LocalContext.current
-    val unavailable by rememberUpdatedState(stringResource(R.string.insights_settings_unavailable))
-    val fallback by rememberUpdatedState(stringResource(R.string.insights_settings_fallback))
-    val batteryFallback by rememberUpdatedState(stringResource(R.string.insights_settings_fallback_battery_optimization))
-    return remember(context) {
-        { spec ->
-            when (settingsNotice(spec, openSettingsPage(context, spec))) {
-                null -> null
-                SettingsNotice.UNAVAILABLE -> unavailable
-                SettingsNotice.FALLBACK -> fallback
-                SettingsNotice.BATTERY_OPTIMIZATION_FALLBACK -> batteryFallback
-            }
+    // The enum is saved by name.
+    var pending by rememberSaveable { mutableStateOf<String?>(null) }
+    pending?.let(SettingsNotice::valueOf)?.let { notice ->
+        val text = stringResource(notice.messageRes())
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(notice, lifecycle) {
+            showOnceResumed(lifecycle.currentStateFlow) { snackbar.showSnackbar(text, duration = SnackbarDuration.Long) }
+            pending = null
         }
+    }
+    return remember(context) {
+        { spec -> settingsNotice(spec, openSettingsPage(context, spec))?.let { pending = it.name } }
     }
 }
 

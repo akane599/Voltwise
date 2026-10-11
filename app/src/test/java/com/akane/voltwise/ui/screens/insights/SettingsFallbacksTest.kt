@@ -1,13 +1,19 @@
 package com.akane.voltwise.ui.screens.insights
 
 import android.content.ActivityNotFoundException
+import androidx.lifecycle.Lifecycle
 import com.akane.voltwise.R
 import com.akane.voltwise.battery.insights.actions.IntentSpec
 import com.akane.voltwise.viewmodel.InsightActionMessage
 import com.akane.voltwise.viewmodel.InsightMessageCode
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsFallbacksTest {
@@ -121,22 +127,61 @@ class SettingsFallbacksTest {
     }
 
     @Test
+    fun `each notice shows its own text`() {
+        assertEquals(R.string.insights_settings_unavailable, SettingsNotice.UNAVAILABLE.messageRes())
+        assertEquals(R.string.insights_settings_fallback, SettingsNotice.FALLBACK.messageRes())
+        assertEquals(
+            R.string.insights_settings_fallback_battery_optimization,
+            SettingsNotice.BATTERY_OPTIMIZATION_FALLBACK.messageRes(),
+        )
+        assertEquals(SettingsNotice.entries.size, SettingsNotice.entries.map { it.messageRes() }.toSet().size)
+    }
+
+    @Test
+    fun `a held notice waits while Settings covers the app, then shows once on return`() = runTest {
+        val lifecycle = MutableStateFlow(Lifecycle.State.STARTED)
+        var shown = 0
+        val waiting = launch { showOnceResumed(lifecycle) { shown++ } }
+        runCurrent()
+        assertEquals("not while the app is only started", 0, shown)
+        lifecycle.value = Lifecycle.State.CREATED
+        runCurrent()
+        assertEquals("not while the app is stopped behind Settings", 0, shown)
+        lifecycle.value = Lifecycle.State.RESUMED
+        runCurrent()
+        assertEquals("once the app is resumed", 1, shown)
+        assertTrue(waiting.isCompleted)
+        lifecycle.value = Lifecycle.State.STARTED
+        runCurrent()
+        lifecycle.value = Lifecycle.State.RESUMED
+        runCurrent()
+        assertEquals("not again on the next resume", 1, shown)
+    }
+
+    @Test
+    fun `a notice held while the app is resumed shows at once`() = runTest {
+        var shown = 0
+        showOnceResumed(MutableStateFlow(Lifecycle.State.RESUMED)) { shown++ }
+        assertEquals(1, shown)
+    }
+
+    @Test
     fun `an alert turned on while notifications are off says so and offers Turn on`() {
         val blocked = InsightActionMessage(InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF, actionId = 7)
-        assertEquals(R.string.insights_message_one_shot_notifications_off, blocked.messageRes())
+        assertEquals(R.string.insights_message_one_shot_notifications_off, blocked.code.messageRes())
         assertEquals(R.string.settings_notifications_turn_on, blocked.actionLabelRes())
     }
 
     @Test
     fun `any other result shows its code's message without an action`() {
         val done = InsightActionMessage(InsightMessageCode.ONE_SHOT, actionId = 7)
-        assertEquals(R.string.insights_message_one_shot, done.messageRes())
+        assertEquals(R.string.insights_message_one_shot, done.code.messageRes())
         assertNull(done.actionLabelRes())
         val applied = InsightActionMessage(InsightMessageCode.APPLIED)
-        assertEquals(R.string.insights_message_applied, applied.messageRes())
+        assertEquals(R.string.insights_message_applied, applied.code.messageRes())
         assertNull(applied.actionLabelRes())
         val reverted = InsightActionMessage(InsightMessageCode.REVERTED, actionId = 7)
-        assertEquals(R.string.insights_message_reverted, reverted.messageRes())
+        assertEquals(R.string.insights_message_reverted, reverted.code.messageRes())
         assertNull("REVERTED never offers Turn on", reverted.actionLabelRes())
         InsightMessageCode.entries.filter { it != InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF }.forEach { code ->
             assertNull("$code offers no action", InsightActionMessage(code).actionLabelRes())

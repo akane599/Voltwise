@@ -217,10 +217,6 @@ internal fun InsightMessageCode.messageRes(): Int = when (this) {
     InsightMessageCode.FEEDBACK_FAILED -> R.string.insights_message_feedback_failed
 }
 
-/** A result's snackbar text: its code's message. */
-@StringRes
-internal fun InsightActionMessage.messageRes(): Int = code.messageRes()
-
 /** The snackbar action a result offers: opening the app's notification settings when its alert can't post. */
 @StringRes
 internal fun InsightActionMessage.actionLabelRes(): Int? =
