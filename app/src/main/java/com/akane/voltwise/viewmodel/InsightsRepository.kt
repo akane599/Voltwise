@@ -9,6 +9,7 @@ import com.akane.voltwise.battery.insights.InsightRepository
 import com.akane.voltwise.battery.insights.actions.ActionResult
 import com.akane.voltwise.battery.insights.actions.InsightActionRepository
 import com.akane.voltwise.battery.insights.actions.undoable
+import com.akane.voltwise.battery.insights.enumName
 import com.akane.voltwise.battery.insights.engine.eligibility.AppWindows
 import com.akane.voltwise.battery.insights.model.*
 import com.akane.voltwise.battery.util.ShellRunner
@@ -104,7 +105,7 @@ internal fun actionStates(
     findings: List<InsightFindingState>,
 ): List<AppliedInsightAction> = actions.map { row ->
     AppliedInsightAction(
-        row.id, row.findingKey, ActionType.entries.firstOrNull { it.name == row.type }, row.packageName,
+        row.id, row.findingKey, enumName<ActionType>(row.type), row.packageName,
         row.status, row.appliedAt, row.undoable(),
         findings.firstOrNull { it.type == FindingType.ACTION_EFFECT && it.key.endsWith(":${row.id}") &&
             (it.subject as? Subject.App)?.packageName == row.packageName },

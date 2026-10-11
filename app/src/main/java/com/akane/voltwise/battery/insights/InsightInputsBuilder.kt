@@ -7,6 +7,7 @@ import com.akane.voltwise.battery.measurement.HealthSummary
 import com.akane.voltwise.battery.util.BatteryStatsParser
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlin.enums.enumEntries
 
 /** Maps stored measurements without replacing unsupported (null) counters with zero. */
 object InsightInputsBuilder {
@@ -105,4 +106,4 @@ object InsightInputsBuilder {
     }
 }
 
-internal inline fun <reified T : Enum<T>> enumName(name: String?): T? = enumValues<T>().firstOrNull { it.name == name }
+internal inline fun <reified T : Enum<T>> enumName(name: String?): T? = enumEntries<T>().firstOrNull { it.name == name }

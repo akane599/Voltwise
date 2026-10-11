@@ -14,8 +14,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+private val LIVE_ACTION_STATUSES = setOf(APPLIED, PREPARED, UNKNOWN)
+private val UNSETTLED_ACTION_STATUSES = setOf(PREPARED, UNKNOWN)
+private val LIVE_ACTION_STATUS_QUERY = LIVE_ACTION_STATUSES.toList()
+private val UNSETTLED_ACTION_STATUS_QUERY = UNSETTLED_ACTION_STATUSES.toList()
+
 internal fun InsightActionEntity.undoable(): Boolean {
-    if (status !in listOf(APPLIED, PREPARED, UNKNOWN)) return false
+    if (status !in LIVE_ACTION_STATUSES) return false
     val action = enumName<ActionType>(type) ?: return false
     return action.reversible && action.requiresPrivilege
 }
@@ -71,7 +76,7 @@ class InsightActionRepository(
                     },
                 ))
                 return@withLock when {
-                    success -> ActionResult.OneShot(saved.id)
+                    success -> ActionResult.OneShot(saved.id, notificationsBlocked = false)
                     outcome is Outcome.NoAccess -> ActionResult.Refused(RefusalCode.NOT_PRIVILEGED)
                     else -> ActionResult.Failed(FailureCode.EXECUTION_FAILED)
                 }
@@ -81,7 +86,7 @@ class InsightActionRepository(
             if (prior !is StateRead.Known) return@withLock initialReadFailure(prior)
             val canWrite = operation.restorable(prior.value, inspector.sdkInt) && !operation.atOrBeyondTarget(prior.value)
             // Retire stale Undo authority before a new write can reach the old target again.
-            for (old in dao.actionsWithStatus(listOf(APPLIED, PREPARED, UNKNOWN))) {
+            for (old in dao.actionsWithStatus(LIVE_ACTION_STATUS_QUERY)) {
                 if (old.type != rec.action.name || old.packageName != app.packageName) continue
                 if (old.uid != app.uid) {
                     dao.updateAction(changedExternally(old))
@@ -89,13 +94,13 @@ class InsightActionRepository(
                 }
                 if (old.status == APPLIED && old.targetState != prior.value) {
                     dao.updateAction(changedExternally(old))
-                } else if (old.status in listOf(PREPARED, UNKNOWN) && old.priorState == prior.value) {
+                } else if (old.status in UNSETTLED_ACTION_STATUSES && old.priorState == prior.value) {
                     if (old.appliedAt != null) {
                         dao.updateAction(old.copy(status = REVERTED, revertedAt = clock(), message = null))
                     } else {
                         dao.updateAction(old.copy(status = FAILED, message = FailureCode.STATE_MISMATCH.name))
                     }
-                } else if (old.status in listOf(PREPARED, UNKNOWN) && old.targetState != prior.value && canWrite) {
+                } else if (old.status in UNSETTLED_ACTION_STATUSES && old.targetState != prior.value && canWrite) {
                     // A third live state is the new prior; the old row cannot own a later matching target.
                     dao.updateAction(changedExternally(old))
                 }
@@ -145,7 +150,7 @@ class InsightActionRepository(
         if (refusal != null) return@withLock ActionResult.Refused(refusal)
         val current = read(operation, pkg)
         if (current !is StateRead.Known) return@withLock initialReadFailure(current)
-        if (row.status in listOf(PREPARED, UNKNOWN) && current.value == row.priorState) {
+        if (row.status in UNSETTLED_ACTION_STATUSES && current.value == row.priorState) {
             if (row.appliedAt != null) {
                 dao.updateAction(row.copy(status = REVERTED, revertedAt = clock(), message = null))
                 return@withLock ActionResult.Reverted
@@ -181,7 +186,7 @@ class InsightActionRepository(
 
     /** Read-only recovery: never replay a command whose execution was interrupted. */
     suspend fun reconcile() = mutex.withLock {
-        for (row in dao.actionsWithStatus(listOf(PREPARED, UNKNOWN))) {
+        for (row in dao.actionsWithStatus(UNSETTLED_ACTION_STATUS_QUERY)) {
             // A one-shot has no restorable state/readback; preserve its uncertainty without replay.
             if (row.type == ActionType.FORCE_STOP.name) continue
             val operation = journalOperation(row)
@@ -266,7 +271,7 @@ class InsightActionRepository(
 
     private fun journalOperation(row: InsightActionEntity): Operation? {
         if (row.priorStateVersion != 1 || row.userId != 0) return null
-        val type = ActionType.entries.firstOrNull { it.name == row.type } ?: return null
+        val type = enumName<ActionType>(row.type) ?: return null
         // Persist the exact app-op in both states, so an OS upgrade cannot redirect Undo.
         // Legacy rows remain restorable even when new restrictions are unsupported.
         val op = if (type == ActionType.RESTRICT_BACKGROUND) {

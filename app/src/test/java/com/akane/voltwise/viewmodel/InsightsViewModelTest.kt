@@ -685,7 +685,7 @@ class InsightsViewModelTest {
             ActionResult.Reverted to InsightMessageCode.REVERTED,
             ActionResult.ChangedExternally("private shell text") to InsightMessageCode.CHANGED_EXTERNALLY,
             ActionResult.ChangedExternally(null) to InsightMessageCode.CHANGED_EXTERNALLY,
-            ActionResult.OneShot(3) to InsightMessageCode.ONE_SHOT,
+            ActionResult.OneShot(3, notificationsBlocked = false) to InsightMessageCode.ONE_SHOT,
             ActionResult.OneShot(4, notificationsBlocked = true) to InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF,
         ) + FailureCode.entries.map { ActionResult.Failed(it) to InsightMessageCode.valueOf(it.name) } +
             RefusalCode.entries.map { ActionResult.Refused(it) to InsightMessageCode.valueOf(it.name) }
@@ -925,7 +925,7 @@ class InsightsViewModelTest {
         val vm = start(saved)
         vm.onEvent(InsightsEvent.Undo(7))
         runCurrent()
-        source.result = ActionResult.OneShot(19)
+        source.result = ActionResult.OneShot(19, notificationsBlocked = false)
         vm.onEvent(InsightsEvent.Undo(8))
         runCurrent()
         val expected = checkNotNull(vm.state.value.apply.lastResult)
