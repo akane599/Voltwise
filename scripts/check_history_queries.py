@@ -16,6 +16,39 @@ def query(method, interface=None):
     assert found, 'Cannot locate actual DAO query: ' + method
     return found[1]
 
+# A full import can contain distinct observed points with the same wall timestamp.
+# One subsequent native write must trim only the overflow, not the whole cutoff tie.
+limits = (root / 'app/src/main/java/com/akane/voltwise/battery/data/HistoryFiles.kt').read_text()
+max_samples = int(re.search(r'const val MAX_SAMPLES = ([\d_]+)', limits)[1].replace('_', ''))
+cleanup_interval = int(re.search(r'const val CLEANUP_SAMPLE_INTERVAL = ([\d_]+)', limits)[1].replace('_', ''))
+assert 'SAMPLE_TRIM_TARGET = MAX_SAMPLES - CLEANUP_SAMPLE_INTERVAL' in limits
+trim_target = max_samples - cleanup_interval
+
+with sqlite3.connect(':memory:') as db:
+    entity = next(e for e in schema['entities'] if e['tableName'] == 'battery_samples')
+    db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    for index in entity.get('indices', []):
+        db.execute(index['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    db.executemany("INSERT INTO battery_samples(id,timestamp,status,screenOn,source,observationId,elapsedMs) VALUES(?,?,3,1,'import:BatteryManager','import:foreign',?)",
+                   ((-i, 1000 if i <= 300 else 1000 + i, i) for i in range(1, max_samples + 1)))
+    db.execute("INSERT INTO battery_samples(timestamp,status,screenOn,source,observationId,elapsedMs) VALUES(?,3,1,'BatteryManager','local',1)",
+               (max_samples + 2000,))
+    expected = [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC LIMIT ?', (trim_target,))]
+    db.execute(query('boundStorage', 'BatteryDao'), {'limit': trim_target})
+    remaining = db.execute('SELECT COUNT(*) FROM battery_samples').fetchone()[0]
+    assert remaining == trim_target, f'Tied-cutoff trim must keep exactly {trim_target} samples, got {remaining}'
+    assert [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC')] == expected, 'Trim must preserve exactly the newest timestamp/id rows'
+    assert db.execute('SELECT COUNT(*) FROM battery_samples WHERE timestamp=1000').fetchone()[0] == 99, 'Trim unnecessarily deleted tied oldest readings'
+    db.execute(query('boundStorage', 'BatteryDao'), {'limit': trim_target})
+    assert [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC')] == expected, 'At-target trim must be a no-op'
+    db.execute(query('clearAll', 'BatteryDao'))
+    for ids, limit in [((), 5), ((-7, 2, -2), 5), ((-7, 2, -2), 3), ((-7, 2, -2, 7, 1), 3), ((-7, 2, -2), 0)]:
+        db.executemany('INSERT INTO battery_samples(id,timestamp,status,screenOn) VALUES(?,1000,3,1)', ((i,) for i in ids))
+        db.execute(query('boundStorage', 'BatteryDao'), {'limit': limit})
+        assert [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY id DESC')] == sorted(ids, reverse=True)[:limit], 'Empty/below-target/exact-target/all-tied/zero-limit trim control failed'
+        db.execute(query('clearAll', 'BatteryDao'))
+print('PASS actual BatteryDao trim SQL: full import + native write keeps exactly 99800 newest timestamp/id rows, tied cutoff, below/at-target and zero-limit controls')
+
 with sqlite3.connect(':memory:') as db:
     for entity in schema['entities']:
         db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))

@@ -48,12 +48,8 @@ interface BatteryDao {
     @Query("WITH buckets AS (SELECT MAX(id) AS representativeId, MAX(CASE WHEN observationId IS NULL OR boundaryReason IS NOT NULL OR currentNowUa IS NULL OR voltageMv IS NULL OR temperatureDeciC IS NULL THEN 1 ELSE 0 END) OR COUNT(DISTINCT observationId) > 1 AS discontinuity FROM battery_samples WHERE sessionId = :sessionId AND timestamp BETWEEN :from AND :to GROUP BY (timestamp - :from) / :bucketMs) SELECT s.timestamp, s.currentNowUa, s.voltageMv, s.temperatureDeciC, s.observationId, s.source, b.discontinuity FROM battery_samples s JOIN buckets b ON s.id = b.representativeId ORDER BY s.timestamp, s.id")
     suspend fun sessionChartSamples(sessionId: String, from: Long, to: Long, bucketMs: Long): List<SessionChartReading>
 
-    /**
-     * Keeps the newest [limit] samples by timestamp: one seek on the timestamp index finds the
-     * (limit + 1)-th newest timestamp and everything at or before it goes. Nothing is deleted while
-     * fewer rows exist (the subquery is NULL).
-     */
-    @Query("DELETE FROM battery_samples WHERE timestamp <= (SELECT timestamp FROM battery_samples ORDER BY timestamp DESC LIMIT 1 OFFSET :limit)")
+    /** Keeps exactly the newest [limit] samples by timestamp, then id; no deletion at or below the limit. */
+    @Query("DELETE FROM battery_samples WHERE id IN (SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC LIMIT -1 OFFSET :limit)")
     suspend fun boundStorage(limit: Int = HistoryLimits.SAMPLE_TRIM_TARGET)
 
     @Query("DELETE FROM battery_samples")
