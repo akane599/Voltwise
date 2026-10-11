@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -175,8 +176,12 @@ class InsightsViewModelTest {
         assertEquals(100L, vm.state.value.lastAnalyzedAt)
         failAnalysis = true
         vm.onEvent(InsightsEvent.AnalyzeNow)
-        // Access re-probing uses the real IO dispatcher; await the observed failure, not scheduler timing.
-        vm.state.first { it.error == InsightMessageCode.ANALYSIS_FAILED }
+        // Use a real-time deadline while access re-probing runs on IO, not runTest's virtual clock.
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(5_000) {
+                vm.state.first { it.error == InsightMessageCode.ANALYSIS_FAILED }
+            }
+        }
         assertEquals(InsightMessageCode.ANALYSIS_FAILED, vm.state.value.error)
         assertEquals(InsightMessageCode.ANALYSIS_FAILED, results.latest.value?.code)
 
