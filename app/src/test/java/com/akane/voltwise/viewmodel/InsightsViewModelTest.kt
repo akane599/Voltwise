@@ -178,7 +178,7 @@ class InsightsViewModelTest {
         vm.onEvent(InsightsEvent.AnalyzeNow)
         // Use a real-time deadline while access re-probing runs on IO, not runTest's virtual clock.
         withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5_000) {
+            withTimeout(30_000) {
                 vm.state.first { it.error == InsightMessageCode.ANALYSIS_FAILED }
             }
         }

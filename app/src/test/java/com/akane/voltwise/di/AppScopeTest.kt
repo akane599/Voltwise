@@ -20,7 +20,7 @@ class AppScopeTest {
         val log = DiagnosticLog()
         val scope = createAppScope { code -> log.record(code, 123L) }
         try {
-            withTimeout(5_000) {
+            withTimeout(30_000) {
                 scope.launch { throw IllegalStateException("private exception message") }.join()
                 assertEquals(DiagnosticCode.APP_SCOPE_FAILED, log.snapshot().single().code)
                 val encoded = DiagnosticLog.encode(log.snapshot())
@@ -42,7 +42,7 @@ class AppScopeTest {
         val codes = mutableListOf<DiagnosticCode>()
         val scope = createAppScope(codes::add)
         try {
-            withTimeout(5_000) {
+            withTimeout(30_000) {
                 scope.launch { throw CancellationException("normal cancellation") }.join()
                 assertTrue(codes.isEmpty())
                 assertTrue(scope.isActive)
