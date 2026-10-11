@@ -43,8 +43,8 @@ private val labels = mapOf(
     "com.google.android.gms" to AppLabel.Named("Google Play services"),
 )
 
-private fun rec(action: ActionType, privileged: Boolean = true, available: Boolean = true, applied: Boolean = false) =
-    RecommendationState(action, action != ActionType.FORCE_STOP, privileged, available, applied)
+private fun rec(action: ActionType, available: Boolean = true, applied: Boolean = false) =
+    RecommendationState(action, available, applied)
 
 /** Drain per session: usual 9–17 mAh/h; the last two sessions (and one earlier spike) are far above it. */
 private val drainSeries = listOf(12.4, 10.8, 14.1, 23.5, 13.0, 11.6, 15.2, 34.0, 41.6).mapIndexed { i, value ->
@@ -68,7 +68,7 @@ private val appFinding = InsightFindingState(
         rec(ActionType.RESTRICT_BACKGROUND),
         rec(ActionType.STANDBY_BUCKET_RESTRICTED),
         rec(ActionType.FORCE_STOP),
-        rec(ActionType.OPEN_APP_SETTINGS, privileged = false),
+        rec(ActionType.OPEN_APP_SETTINGS),
     ),
     attributions = emptyList(),
 )
@@ -101,7 +101,7 @@ private val notPrivileged = FindingDetailsUiState(
         recommendations = listOf(
             rec(ActionType.RESTRICT_BACKGROUND, available = false),
             rec(ActionType.FORCE_STOP, available = false),
-            rec(ActionType.OPEN_APP_SETTINGS, privileged = false),
+            rec(ActionType.OPEN_APP_SETTINGS),
         ),
     ),
     privileged = false,
@@ -122,7 +122,7 @@ private val device = FindingDetailsUiState(
         series = listOf(0.66, 0.61, 0.70, 0.58, 0.63, 0.31, 0.12).mapIndexed { i, value ->
             SeriesPoint(FIXED_TIME_MS - (6 - i) * DAY - 3 * HOUR, value, null, null)
         },
-        recommendations = listOf(rec(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS, privileged = false)),
+        recommendations = listOf(rec(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS)),
         attributions = listOf(
             Attribution(AttributionKind.KERNEL_WAKELOCK, "NETLINK", null, 1_860_000.0, MetricUnit.MS_PER_H, 3),
             Attribution(AttributionKind.WAKEUP_REASON, "qcom,glink-smem-native-xprt-modem", null, 22.0, MetricUnit.COUNT_PER_H, 3),
