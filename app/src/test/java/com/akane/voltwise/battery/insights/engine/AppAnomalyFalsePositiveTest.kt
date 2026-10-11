@@ -278,8 +278,9 @@ class AppShareAnomalyRegressionTest(
 /**
  * Production-share severity controls: median 1.5, uncapped IID lognormal CV .2, seed 37204.
  * Before measuring, require >=450/500 HIGH at 4x and >=450/500 non-HIGH at 2x. Non-HIGH includes
- * silence: the downward control bounds notifying severity, not firing power. Both persistence
- * windows receive the shift. Held-out seeds add the existing fixed 1,000,000 offset.
+ * silence: the downward control bounds notifying severity, not firing power. The shift covers every
+ * evaluated window: StuckWakelock's single window, or both of BackgroundRunaway's persistence windows.
+ * Held-out seeds add the existing fixed 1,000,000 offset.
  */
 class ProductionShareSeverityAppAnomalyFalsePositiveTest {
     @Test fun fourfoldWakelockHighAtLeastNinetyPercent() =
