@@ -234,7 +234,8 @@ internal class InsightApplyFlow(
                         RefusalCode.ALREADY_AT_TARGET -> InsightMessageCode.ALREADY_AT_TARGET
                     }))
                     is ActionResult.OneShot -> message(InsightActionMessage(
-                        InsightMessageCode.ONE_SHOT, result.actionId, notificationsBlocked = result.notificationsBlocked,
+                        if (result.notificationsBlocked) InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF else InsightMessageCode.ONE_SHOT,
+                        result.actionId,
                     ))
                     is ActionResult.OpenSettings -> {
                         results.consume(ownLast)

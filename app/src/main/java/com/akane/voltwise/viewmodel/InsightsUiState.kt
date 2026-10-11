@@ -96,6 +96,8 @@ data class FindingDetailsUiState(
 /** Fixed codes only. The UI owns localized copy; shell text is never a message. */
 enum class InsightMessageCode {
     APPLIED, RESTRICTED_TO_RARE, UNKNOWN, REVERTED, CHANGED_EXTERNALLY, ONE_SHOT,
+    /** An alert was turned on, but this app's notifications are off, so it can't post. */
+    ONE_SHOT_NOTIFICATIONS_OFF,
     READ_FAILED, EXECUTION_FAILED, NOT_APPLIED, STATE_MISMATCH, NOT_UNDOABLE, INVALID_JOURNAL,
     NOT_PRIVILEGED, PROTECTED, NOT_INSTALLED, UID_MISMATCH, SHARED_UID, ROLE_HOLDER,
     UNSUPPORTED_SDK, INVALID_SUBJECT, INVALID_PACKAGE, UNRESTORABLE_PRIOR, INSPECTION_FAILED, ALREADY_AT_TARGET,
@@ -111,7 +113,6 @@ data class InsightActionMessage(
     val code: InsightMessageCode,
     val actionId: Long? = null,
     val seq: Long = 0,
-    val notificationsBlocked: Boolean = false,
 )
 
 sealed interface InsightUiEffect {

@@ -37,7 +37,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.pluralStringResource
@@ -100,20 +99,17 @@ fun FindingDetailsScreen(
     vm: FindingDetailsViewModel = koinViewModel(extras = findingKeyExtras(findingKey)),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val appInfo: AppInfoSource = koinInject()
     val back by rememberUpdatedState(onBack)
     var leaving by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    val settingsUnavailable by rememberUpdatedState(stringResource(R.string.insights_settings_unavailable))
+    val openSettings = rememberSettingsOpener()
     LaunchedEffect(vm) {
         vm.effects.collect { effect ->
             when (effect) {
                 // The snackbar follows the ViewModel's held result (state.apply.lastResult), which survives rotation.
                 is InsightUiEffect.Message -> if (effect.result.code == InsightMessageCode.FEEDBACK_FAILED) leaving = false
-                is InsightUiEffect.OpenSettings -> if (!openSettingsPage(context, effect.spec)) {
-                    launch { snackbar.showSnackbar(settingsUnavailable) }
-                }
+                is InsightUiEffect.OpenSettings -> openSettings(effect.spec)?.let { launch { snackbar.showSnackbar(it) } }
                 is InsightUiEffect.OpenFinding -> Unit
             }
         }

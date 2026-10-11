@@ -192,6 +192,7 @@ internal fun InsightMessageCode.messageRes(): Int = when (this) {
     InsightMessageCode.REVERTED -> R.string.insights_message_reverted
     InsightMessageCode.CHANGED_EXTERNALLY -> R.string.insights_message_changed_externally
     InsightMessageCode.ONE_SHOT -> R.string.insights_message_one_shot
+    InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF -> R.string.insights_message_one_shot_notifications_off
     InsightMessageCode.READ_FAILED -> R.string.insights_message_read_failed
     InsightMessageCode.EXECUTION_FAILED -> R.string.insights_message_execution_failed
     InsightMessageCode.NOT_APPLIED -> R.string.insights_message_not_applied
@@ -216,15 +217,14 @@ internal fun InsightMessageCode.messageRes(): Int = when (this) {
     InsightMessageCode.FEEDBACK_FAILED -> R.string.insights_message_feedback_failed
 }
 
-/** A result's snackbar text: its code's message, except an alert that was turned on but can't post says so. */
+/** A result's snackbar text: its code's message. */
 @StringRes
-internal fun InsightActionMessage.messageRes(): Int =
-    if (notificationsBlocked) R.string.insights_message_one_shot_notifications_off else code.messageRes()
+internal fun InsightActionMessage.messageRes(): Int = code.messageRes()
 
 /** The snackbar action a result offers: opening the app's notification settings when its alert can't post. */
 @StringRes
 internal fun InsightActionMessage.actionLabelRes(): Int? =
-    if (notificationsBlocked) R.string.settings_notifications_turn_on else null
+    if (code == InsightMessageCode.ONE_SHOT_NOTIFICATIONS_OFF) R.string.settings_notifications_turn_on else null
 
 /** How one [Evidence] compares with its baseline, which decides its wording. */
 internal sealed interface EvidenceComparison {

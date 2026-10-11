@@ -211,4 +211,6 @@
 
     <!-- Shown when no settings page (the one asked for, the app details page or Settings itself) could open -->
     <string name="insights_settings_unavailable">Settings page unavailable on this device.</string>
+    <string name="insights_settings_fallback">That page isn\'t available on this device, so Voltwise opened the closest one.</string>
+    <string name="insights_settings_fallback_battery_optimization">Battery optimization isn\'t available on this device, so Voltwise opened the closest page. Search Settings for \"Battery optimization\".</string>
 </resources>
