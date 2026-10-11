@@ -1113,7 +1113,7 @@ class InsightActionRepositoryTest {
             assertNull(attempt!!.targetState)
         }
 
-        assertEquals(ActionResult.OneShot(1), f.apply(ActionType.FORCE_STOP))
+        assertEquals(ActionResult.OneShot(1, notificationsBlocked = false), f.apply(ActionType.FORCE_STOP))
 
         assertEquals(attempt!!.id, f.dao.actionsOnce().single().id)
         assertEquals(attempt!!.createdAt, f.row().createdAt)
@@ -1215,7 +1215,7 @@ class InsightActionRepositoryTest {
         assertEquals(1, f.commands.size)
         assertEquals(old, f.row())
         f.replies += ok()
-        assertEquals(ActionResult.OneShot(2), f.apply(ActionType.FORCE_STOP))
+        assertEquals(ActionResult.OneShot(2, notificationsBlocked = false), f.apply(ActionType.FORCE_STOP))
         assertEquals(2, f.commands.size)
         assertEquals(ONE_SHOT, f.dao.rows.value.last().status)
     }
@@ -1233,7 +1233,7 @@ class InsightActionRepositoryTest {
     @Test fun forceStopIsOneShotAndFailuresUseFixedCodes() = runTest {
         val f = Fixture(); f.reply()
         f.replies += ok()
-        assertEquals(ActionResult.OneShot(1), f.apply(ActionType.FORCE_STOP))
+        assertEquals(ActionResult.OneShot(1, notificationsBlocked = false), f.apply(ActionType.FORCE_STOP))
         assertEquals(ONE_SHOT, f.row().status); assertEquals(1, f.commands.size)
         assertEquals(ActionResult.Failed(FailureCode.NOT_UNDOABLE), f.repo.undo(1))
         val failed = Fixture(); failed.replies += failure()
@@ -1286,7 +1286,7 @@ class InsightActionRepositoryTest {
         assertEquals(ActionResult.OpenSettings(IntentSpec("android.settings.APPLICATION_DETAILS_SETTINGS", pkg)), f.apply(ActionType.OPEN_APP_SETTINGS))
         assertEquals(ActionResult.OpenSettings(IntentSpec("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS")), f.apply(ActionType.OPEN_BATTERY_OPTIMIZATION_SETTINGS))
         assertTrue(f.dao.rows.value.isEmpty())
-        assertEquals(ActionResult.OneShot(1), f.repo.apply(finding(Subject.Device), rec(ActionType.ENABLE_HIGH_BATTERY_ALERT)))
+        assertEquals(ActionResult.OneShot(1, notificationsBlocked = false), f.repo.apply(finding(Subject.Device), rec(ActionType.ENABLE_HIGH_BATTERY_ALERT)))
         assertEquals(1, f.alerts); assertEquals(ONE_SHOT, f.row().status); assertTrue(f.commands.isEmpty())
     }
 
@@ -1358,7 +1358,7 @@ class InsightActionRepositoryTest {
                 resume.complete(Unit)
             }
             assertEquals(ActionResult.Applied(1), first.await())
-            assertEquals(ActionResult.OneShot(2), second.await())
+            assertEquals(ActionResult.OneShot(2, notificationsBlocked = false), second.await())
             assertEquals(listOf(APPLIED, ONE_SHOT), f.dao.rows.value.map { it.status })
             assertEquals(if (type == ActionType.FORCE_STOP) 4 else 3, f.commands.size)
             assertEquals(if (type == ActionType.ENABLE_HIGH_BATTERY_ALERT) 1 else 0, f.alerts)

@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akane.voltwise.battery.insights.actions.*
+import com.akane.voltwise.battery.insights.enumName
 import com.akane.voltwise.battery.insights.engine.detectors.app.AppContext
 import com.akane.voltwise.battery.insights.model.*
 import java.util.concurrent.atomic.AtomicLong
@@ -132,7 +133,7 @@ internal class InsightApplyFlow(
     val effects: Flow<InsightUiEffect> = events.receiveAsFlow()
     private val mutableState = MutableStateFlow(InsightApplyState(
         pending = (saved.get<Any?>(PENDING_ACTION) as? String)?.let { name ->
-            val action = ActionType.entries.firstOrNull { it.name == name }
+            val action = enumName<ActionType>(name)
             (saved.get<Any?>(PENDING_KEY) as? String)?.let { key -> action?.let { PendingInsightApply(key, it) } }
         },
         lastResult = results.latest.value,

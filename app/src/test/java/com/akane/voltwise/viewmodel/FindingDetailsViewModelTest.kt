@@ -285,7 +285,7 @@ source.actions.value = listOf(insightAction().copy(findingKey = "another.finding
         val vm = start(saved)
         vm.onEvent(InsightsEvent.Undo(7))
         runCurrent()
-        source.result = ActionResult.OneShot(19)
+        source.result = ActionResult.OneShot(19, notificationsBlocked = false)
         vm.onEvent(InsightsEvent.Undo(8))
         runCurrent()
         val expected = checkNotNull(vm.state.value.apply.lastResult)

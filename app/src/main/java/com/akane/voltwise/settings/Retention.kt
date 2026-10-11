@@ -7,7 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 sealed interface Retention {
     data class Days(val days: Long) : Retention {
         init {
-            require(days > 0)
+            require(days > 0) { "retention days must be positive: $days" }
         }
     }
     data object Forever : Retention
