@@ -14,7 +14,7 @@ Android, developed on Ubuntu from the CLI.
 - DI/DB/Net: Koin / Room / none · Async: coroutines/Flow · Navigation: Navigation 3 · Firebase: no · Version catalog: yes
 - App id: com.akane.voltwise (debug .debug, preview .preview; was org.mlm.batstats before 2026-10-08) · namespace: com.akane.voltwise (was app.batstats) · Launcher: com.akane.voltwise.battery.BatteryMainActivity
 - Tests: JUnit4 + kotlinx-coroutines-test; androidTest present, no Espresso · Lint: Android lint; no detekt/ktlint/spotless
-- Baseline: full gate green on feat/insights @ 78dd4b1 (2026-10-11): unit 1944 (45 skipped)/0 fail, androidTest compile, assembleDebug, lint, 274 screenshots/0 fail, migrations; assemblePreview last OK @ 257ddc4
+- Baseline: full gate green on feat/insights @ a1d8335 (2026-10-11): unit 1972 (45 skipped)/0 fail, androidTest compile, assembleDebug, lint, 274 screenshots/0 fail, migrations; assemblePreview last OK @ 257ddc4
 <!-- STACK:END -->
 
 ## How work flows here
