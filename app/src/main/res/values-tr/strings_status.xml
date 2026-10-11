@@ -71,6 +71,7 @@
     <string name="status_issue_history_failed">Geçmiş kaydedilemedi</string>
     <string name="status_issue_gap">İzleme duraklatıldı; aradaki süre sayılmadı</string>
     <string name="status_issue_charge_counter">Şarj sayacı yoktu ya da sıfırlandı</string>
+    <string name="status_issue_doze_whitelist_unreadable">Pil optimizasyonu muafiyet listesi okunamadı, bu yüzden Doze bulgusu güncel olmayabilir</string>
     <string name="status_issue_advanced_failed">Uygulama başına istatistikler okunamadı</string>
     <string name="status_issue_format_invalid">Android\'in pil raporu anlaşılamadı</string>
     <string name="status_issue_interrupted">Uygulama başına istatistiklerin okunması yarıda kesildi</string>

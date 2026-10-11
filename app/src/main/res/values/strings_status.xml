@@ -74,6 +74,7 @@
     <string name="status_issue_history_failed">History could not be saved</string>
     <string name="status_issue_gap">Monitoring paused; the gap is left out</string>
     <string name="status_issue_charge_counter">The charge counter was missing or reset</string>
+    <string name="status_issue_doze_whitelist_unreadable">Couldn\'t read the battery-optimization exemption list, so the Doze finding may be out of date</string>
     <string name="status_issue_advanced_failed">Per-app statistics could not be read</string>
     <string name="status_issue_format_invalid">Android\'s battery report was not understood</string>
     <string name="status_issue_interrupted">Reading per-app statistics was interrupted</string>
