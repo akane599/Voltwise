@@ -230,7 +230,8 @@ class StatusViewModel(
             DiagnosticCode.MONITORING_STARTED, DiagnosticCode.MONITORING_STOPPED,
             DiagnosticCode.ACCESS_NONE, DiagnosticCode.ACCESS_SHIZUKU, DiagnosticCode.ACCESS_ROOT, DiagnosticCode.ACCESS_ADB,
             DiagnosticCode.ADVANCED_RECOVERED, DiagnosticCode.SYSTEM_STATS_RESET, DiagnosticCode.APP_SCOPE_FAILED,
-            DiagnosticCode.ADVANCED_INCOMPLETE -> null
+            DiagnosticCode.ADVANCED_INCOMPLETE, DiagnosticCode.DOZE_WHITELIST_READ_FAILED,
+            DiagnosticCode.DOZE_WHITELIST_FORMAT_INVALID -> null
         }
     }
 }

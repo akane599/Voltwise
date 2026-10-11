@@ -256,6 +256,15 @@ class StatusViewModelTest {
         assertTrue("ADVANCED_INCOMPLETE must not add an on-screen status issue", state().issues.isEmpty())
     }
 
+    @Test fun dozeWhitelistFailuresAreDiagnosticReportOnlyNotStatusIssues() = runTest {
+        val (_, state) = start()
+        for (code in listOf(DiagnosticCode.DOZE_WHITELIST_READ_FAILED, DiagnosticCode.DOZE_WHITELIST_FORMAT_INVALID)) {
+            repo.events.value = listOf(DiagnosticEvent(code, 100, 200, count = 2))
+            runCurrent()
+            assertTrue("$code must not add an on-screen status issue", state().issues.isEmpty())
+        }
+    }
+
     @Test fun reportComesFromTheRepositoryAndAFailedShareIsShown() = runTest {
         val (vm, state) = start()
         assertEquals("report", vm.report())

@@ -28,14 +28,14 @@ class DozeWhitelistReaderTest {
         val diagnostics = mutableListOf<DiagnosticCode>()
         val shell = shizuku(ShizukuBridge.RunResult.Error("command failed", ShizukuBridge.Failure.TRANSPORT))
         assertNull(readUserDozeWhitelist(shell, diagnostics::add))
-        assertEquals(listOf(DiagnosticCode.ADVANCED_READ_FAILED), diagnostics)
+        assertEquals(listOf(DiagnosticCode.DOZE_WHITELIST_READ_FAILED), diagnostics)
     }
 
     @Test fun unrecognizedOutputMeansUnknownAndRecordsInvalidFormat() = runTest {
         for (output in listOf("garbage", "vendor,com.example.app,10123", "")) {
             val diagnostics = mutableListOf<DiagnosticCode>()
             assertNull(readUserDozeWhitelist(shizuku(ShizukuBridge.RunResult.Success(output)), diagnostics::add))
-            assertEquals(listOf(DiagnosticCode.ADVANCED_FORMAT_INVALID), diagnostics)
+            assertEquals(listOf(DiagnosticCode.DOZE_WHITELIST_FORMAT_INVALID), diagnostics)
         }
     }
 
@@ -61,18 +61,31 @@ class DozeWhitelistReaderTest {
         }
     }
 
-    @Test fun androidRefusalMeansUnknownWithoutDiagnostics() = runTest {
+    @Test fun shizukuAndroidRefusalMeansUnknownAndRecordsDozeReadFailure() = runTest {
         val diagnostics = mutableListOf<DiagnosticCode>()
         val shell = shizuku(ShizukuBridge.RunResult.Success("Permission Denial: whitelist requires privileged access"))
         assertNull(readUserDozeWhitelist(shell, diagnostics::add))
-        assertEquals(emptyList<DiagnosticCode>(), diagnostics)
+        assertEquals(listOf(DiagnosticCode.DOZE_WHITELIST_READ_FAILED), diagnostics)
+    }
+
+    @Test fun rootAndroidRefusalMeansUnknownAndRecordsDozeReadFailure() = runTest {
+        val diagnostics = mutableListOf<DiagnosticCode>()
+        val shell = ShellRunner(
+            probeMode = { ShellRunner.Mode.ROOT }, runShizuku = { _, _, _ -> error("No fallback") },
+            runRoot = { command, _ ->
+                assertEquals(PrivilegedCommand.ListDozeWhitelist.argv.joinToString(" "), command)
+                CommandOutput.Result("Permission Denial: whitelist requires privileged access")
+            }, shizukuRunning = { false }, elapsedMs = { 0L },
+        )
+        assertNull(readUserDozeWhitelist(shell, diagnostics::add))
+        assertEquals(listOf(DiagnosticCode.DOZE_WHITELIST_READ_FAILED), diagnostics)
     }
 
     @Test fun rootUsesTheSameReadbackAndKeepsErrorsUnknown() = runTest {
         for ((output, expected, expectedDiagnostics) in listOf(
             Triple(CommandOutput.Result("user,com.example.app,10123"), setOf("com.example.app"), emptyList()),
-            Triple(CommandOutput.Result(error = "command failed"), null, listOf(DiagnosticCode.ADVANCED_READ_FAILED)),
-            Triple(CommandOutput.Result("garbage"), null, listOf(DiagnosticCode.ADVANCED_FORMAT_INVALID)),
+            Triple(CommandOutput.Result(error = "command failed"), null, listOf(DiagnosticCode.DOZE_WHITELIST_READ_FAILED)),
+            Triple(CommandOutput.Result("garbage"), null, listOf(DiagnosticCode.DOZE_WHITELIST_FORMAT_INVALID)),
             Triple(CommandOutput.Result(error = "access lost", accessFailure = CommandOutput.AccessFailure.DENIED), null, emptyList()),
         )) {
             val diagnostics = mutableListOf<DiagnosticCode>()
