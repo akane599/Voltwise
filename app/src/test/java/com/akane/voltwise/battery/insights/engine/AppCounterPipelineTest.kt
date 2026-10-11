@@ -417,7 +417,7 @@ class AppCounterPipelineTest {
             override suspend fun snapshot(force: Boolean) = AppStatsResult.Ready(endReads.removeFirst())
         }
         val transitions = MutableSharedFlow<PowerTransition>(extraBufferCapacity = 4)
-        val collector = SessionSnapshotCollector(stats, store, transitions, log = {}, warn = { error(it) })
+        val collector = SessionSnapshotCollector(stats, store, transitions, log = {}, warn = { error(it) }, onDiagnostic = {})
         val collectorJob = collectorScope?.backgroundScope?.launch { collector.run() }
         collectorScope?.runCurrent()
         for (index in 0..3) {

@@ -199,7 +199,7 @@ val appModule = module {
             database.sessionDao(), database.dailySummaryDao(), database.appUsageDao(), get(),
             get(), Clock.systemDefaultZone(),
             currentZone = ZoneId::systemDefault,
-            dozeWhitelist = { readUserDozeWhitelist(shell) },
+            dozeWhitelist = { readUserDozeWhitelist(shell, get<DiagnosticStore>()::record) },
             store = SharedPreferencesStore(preferences),
             maintenance = get(),
             capacityReading = {

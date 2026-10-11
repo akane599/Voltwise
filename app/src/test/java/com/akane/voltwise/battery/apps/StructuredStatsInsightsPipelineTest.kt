@@ -244,7 +244,7 @@ class StructuredStatsInsightsPipelineTest {
             }
         }
         val transitions = MutableSharedFlow<PowerTransition>(extraBufferCapacity = 8)
-        val collector = SessionSnapshotCollector(clockedSource, store, transitions, log = {}, warn = { fail(it) })
+        val collector = SessionSnapshotCollector(clockedSource, store, transitions, log = {}, warn = { fail(it) }, onDiagnostic = {})
         val collecting = backgroundScope.launch { collector.run() }
         runCurrent()
         repeat(5) { index ->

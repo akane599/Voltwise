@@ -122,7 +122,7 @@ class InsightStopWiringTest {
         val snapshots = SessionSnapshotCollector(
             object : AppStatsSource {
                 override suspend fun snapshot(force: Boolean): AppStatsResult = error("Unexpected dump")
-            }, snapshotStore, MutableSharedFlow<PowerTransition>(), log = {}, warn = { fail(it) },
+            }, snapshotStore, MutableSharedFlow<PowerTransition>(), log = {}, warn = { fail(it) }, onDiagnostic = {},
         )
         val closed = MutableSharedFlow<ChargeSession>()
         val ready = CompletableDeferred<Unit>()
