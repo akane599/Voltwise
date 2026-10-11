@@ -50,7 +50,7 @@ class SessionSnapshotCollector(
     private val transitions: Flow<PowerTransition>,
     private val log: (String) -> Unit = { Log.d(LOG_TAG, it) },
     private val warn: (String) -> Unit = { Log.w(LOG_TAG, it) },
-    private val onDiagnostic: (DiagnosticCode) -> Unit = {},
+    private val onDiagnostic: (DiagnosticCode) -> Unit,
 ) {
     private val writes = Mutex()
     private val finalized = mutableSetOf<String>()
