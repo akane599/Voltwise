@@ -9,6 +9,10 @@ import com.akane.voltwise.battery.measurement.Observation
 import com.akane.voltwise.battery.measurement.ObservationEngine
 import com.akane.voltwise.battery.measurement.PowerState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -113,6 +117,138 @@ class ObservationResetTest {
             } else {
                 assertTrue("negative control: stale tail leaks into the stopped day", days.single { it.epochDay == 1L }.screenOnMs > 0)
             }
+        }
+    }
+
+    @Test fun unsafeLatestSnapshotAdvancesPastTheFirstRecoveryAnchor() = runTest {
+        val fixture = RecoveryCallbacks(this)
+        fixture.restart()
+        runCurrent() // Writer failure is acknowledged; initial sampler callback is still queued.
+        assertEquals(1, fixture.failures)
+        fixture.missing = false
+        fixture.drainSampler() // Delayed initial read, then manual refresh: two NEW endpoints.
+        fixture.read(10_001)
+        runCurrent()
+        assertEquals(0L, fixture.committed.first().observedMs)
+        assertEquals(2, fixture.successfulReads)
+        assertEquals("negative control: latest state has advanced beyond the first anchor", 1L, fixture.engine.summary.observedMs)
+    }
+
+    @Test fun missingReadBarrierCertifiesOneAnchorForWriterFirstAndSamplerFirst() = runTest {
+        for (samplerFirst in listOf(false, true)) {
+            val fixture = RecoveryCallbacks(this)
+            fixture.restart()
+            if (samplerFirst) fixture.drainSampler()
+            runCurrent()
+            assertEquals(1, fixture.failures)
+            assertNull("reset precedes the failed retention lookup", fixture.engine.summary.startedAt)
+            // Refresh behind the initial callback while reads are still missing.
+            fixture.queueRefresh()
+            fixture.drainSampler()
+            assertEquals(2, fixture.missingReads)
+            fixture.allowOne = true
+            fixture.missing = false
+            fixture.queueRefresh()
+            fixture.drainSampler()
+            fixture.read(10_001) // Later poll must be held, not accepted by the writer.
+            runCurrent()
+            val anchor = fixture.committed.single()
+            assertEquals("exactly one successful recovery endpoint", 1, fixture.successfulReads)
+            assertEquals(1, fixture.heldReads)
+            assertEquals("first new capture is an anchor, not the previous run's tail", 0L, anchor.observedMs)
+            assertEquals("new", anchor.latest!!.generation)
+            assertEquals(10_000L, anchor.latest!!.elapsedMs)
+            assertEquals(anchor, fixture.engine.summary)
+        }
+    }
+
+    @Test fun equalTimeEndpointsNeedACountAsWellAsZeroDuration() = runTest {
+        val fixture = RecoveryCallbacks(this)
+        fixture.restart()
+        runCurrent()
+        fixture.drainSampler()
+        fixture.missing = false
+        fixture.read(10_000)
+        fixture.read(10_000)
+        runCurrent()
+        assertEquals(0L, fixture.engine.summary.observedMs)
+        assertEquals("zero duration alone cannot certify one endpoint", 2, fixture.successfulReads)
+    }
+
+    @Test fun timedOutRefreshReleasesPendingCallbackBeforeJoin() = runTest { pendingCallbackCleanup(cancel = false) }
+
+    @Test fun cancelledRefreshReleasesPendingCallbackBeforeJoin() = runTest { pendingCallbackCleanup(cancel = true) }
+
+    private suspend fun TestScope.pendingCallbackCleanup(cancel: Boolean) {
+        val fixture = RecoveryCallbacks(this)
+        fixture.restart()
+        runCurrent()
+        fixture.drainSampler()
+        fixture.missing = false
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val order = mutableListOf<String>()
+        // A synchronous Handler read is not cancelled when its coroutine refresh caller is cancelled.
+        val callback = backgroundScope.async {
+            withContext(NonCancellable) {
+                entered.complete(Unit)
+                release.await()
+                fixture.read(10_000)
+                order += "read returned"
+            }
+        }
+        try {
+            runCurrent()
+            entered.await()
+            if (cancel) callback.cancel()
+            else assertNull(withTimeoutOrNull(1) { callback.await() })
+            assertTrue("read is still pending", order.isEmpty())
+        } finally {
+            order += "gate released"
+            release.complete(Unit)
+            runCurrent()
+            callback.join()
+            order += "child joined"
+        }
+        runCurrent()
+        assertEquals(listOf("gate released", "read returned", "child joined"), order)
+        assertEquals(1, fixture.successfulReads)
+        assertEquals(0L, fixture.committed.single().observedMs)
+    }
+
+    /** Deliberately scheduled Android-free callbacks, not a replay of an unknown Handler interleaving. */
+    private class RecoveryCallbacks(scope: TestScope) {
+        val engine = ObservationEngine().apply { accept(point(1_000, "old")); accept(point(3_000, "old")); stop() }
+        val committed = mutableListOf<ObservationSummary>()
+        var failures = 0
+        var missing = true
+        var allowOne = false
+        var missingReads = 0
+        var successfulReads = 0
+        var heldReads = 0
+        private val sampler = ArrayDeque<() -> Unit>()
+        private val writer = HistoryWriter<Observation?>(scope.backgroundScope,
+            StandardTestDispatcher(scope.testScheduler), HistoryMaintenance(), { null }, { false },
+            handleEvent = { point ->
+                if (point == null) {
+                    engine.reset()
+                    throw java.io.IOException("one-shot retention lookup")
+                }
+                committed += engine.accept(point)
+            }, onFailure = { failures++ })
+
+        fun restart() { writer.trySend(null); queueRefresh() }
+        fun queueRefresh() { sampler.addLast { read(10_000) } }
+        fun drainSampler() { while (sampler.isNotEmpty()) sampler.removeFirst().invoke() }
+        fun read(elapsed: Long) {
+            if (missing) { missingReads++; return }
+            if (allowOne && successfulReads == 1) { heldReads++; return }
+            successfulReads++
+            writer.trySend(point(elapsed, "new"))
+        }
+        private companion object {
+            fun point(time: Long, generation: String) = Observation(time, time, time, 80,
+                4_000_000, -500_000, 4_000, PowerState.DISCHARGING, true, false, generation)
         }
     }
 
