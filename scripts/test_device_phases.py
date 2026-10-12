@@ -11,6 +11,15 @@ from test_device_reports import CADENCE, CORE, OFF, ON, SHIZUKU
 
 RUNNER = Path(__file__).with_name("check_android_device.sh")
 
+# Complete public before-core APP receipt from native push 38255659823 reports.zip.
+NATIVE_V2_RECEIPT = (
+    "V2 Signer: certificate DN: C=US, O=Android, CN=Android Debug\n"
+    "V2 Signer: certificate SHA-256 digest: 9e8f41f89317efefe0c42a6c967d65f892503f4171169d163232529c909b39d8\n"
+    "V2 Signer: certificate SHA-1 digest: b54520e0d46ead43cf5db4c4e4d27f92b166a091\n"
+    "V2 Signer: certificate MD5 digest: cf3e8310ccf30291228609c381d5b3a9\n"
+)
+RECEIPT_BOUNDARIES = ('before-app', 'before-test', 'after-app', 'after-test')
+
 # Commands not explicitly admitted below are errors, not silently successful mocks.
 FAKE_ADB = r'''
 import json, os, sys
@@ -190,8 +199,16 @@ stage = 'after' if state['core'] else 'before'
 if config.get('metadata_fail') == stage and tool == 'apksigner' or config.get('hash_fail') == stage and tool == 'sha256sum': sys.exit(25)
 digest = hashlib.sha256(Path(args[-1]).read_bytes()).hexdigest()
 if tool == 'sha256sum': print(digest + '  ' + args[-1])
-elif config.get('metadata_bad_output') == stage: print('missing fingerprint')
-else: print('Signer #1 certificate SHA-256 digest: ' + ('a' if Path(args[-1]).read_text() == 'A' else 'b') * 64)
+else:
+    boundary = stage + '-' + ('app' if args[-1] == apks[0] else 'test')
+    output = config.get('metadata_outputs', {}).get(boundary)
+    if output is not None: print(output, end='')
+    elif config.get('metadata_bad_output') == stage: print('missing fingerprint')
+    else: print('Signer #1 certificate SHA-256 digest: ' + ('a' if Path(args[-1]).read_text() == 'A' else 'b') * 64)
+    status = config.get('metadata_exits', {}).get(boundary, 0)
+    state.setdefault('signer_results', {})[boundary] = {'tool_path': sys.argv[0], 'verify_exit': status}
+    Path('state.json').write_text(json.dumps(state))
+    sys.exit(status)
 '''
 
 
@@ -251,6 +268,87 @@ class DevicePhasesTest(unittest.TestCase):
                 elif SHIZUKU in call: phases.append('shizuku')
                 else: phases.append('core')
         return phases
+
+    def assert_signer_command(self, root, boundary, status):
+        stage, name = boundary.split('-')
+        reports = root / 'app/build/reports/device-validation/standard'
+        actual = json.loads((root / 'state.json').read_text())['signer_results'][boundary]
+        self.assertEqual({'tool_path': str(root / 'bin/apksigner'), 'verify_exit': status}, actual)
+        self.assertEqual(f'tool_path={actual["tool_path"]}\nverify_exit={status}\n',
+                         (reports / f'{stage}-core-{name}-signer-command.txt').read_text())
+
+    def assert_metadata_stops_dependents(self, root, result, calls, boundary, status, verify_status=0):
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(f'apk_metadata_exit={status}\n', result.stdout)
+        self.assertIn(f'ordinary_exit={status}\n', result.stdout)
+        self.assert_signer_command(root, boundary, verify_status)
+        before = boundary.startswith('before-')
+        self.assertEqual([] if before else ['core'], self.executions(calls))
+        self.assertEqual(0 if before else 2, sum(call[1:2] == ['install'] for call in calls))
+        self.assertEqual(0 if before else 2, sum(call[1:2] == ['uninstall'] for call in calls))
+        self.assertEqual(0 if before else 2, sum('log' in call for call in calls))
+        self.assertNotIn(['setup'], calls)
+        self.assertNotIn(['adb', 'shell', 'input', 'keyevent', '223'], calls)
+        state = json.loads((root / 'state.json').read_text())
+        if before:
+            self.assertEqual({'app': None, 'test': None}, state['installed'])
+        else:
+            self.assertEqual(CORE, state['executed_core'])
+
+    def test_native_v2_receipts_execute_original_core_and_full_inventory(self):
+        root, result, calls = self.run_phases(
+            signer_transition=True,
+            metadata_outputs=dict.fromkeys(RECEIPT_BOUNDARIES, NATIVE_V2_RECEIPT))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(['core', 'screen-on', 'screen-off', 'shizuku'], self.executions(calls))
+        state = json.loads((root / 'state.json').read_text())
+        self.assertEqual(CORE, state['executed_core'])
+        reports = root / 'app/build/reports/device-validation/standard'
+        self.assertEqual(set(CORE), set((reports / 'core-identities.txt').read_text().splitlines()))
+        self.assertEqual(set(CORE + [ON, OFF]), set((reports / 'ordinary-identities.txt').read_text().splitlines()))
+        self.assertEqual([SHIZUKU], (reports / 'shizuku-identities.txt').read_text().splitlines())
+        for boundary in RECEIPT_BOUNDARIES:
+            stage, name = boundary.split('-')
+            self.assertEqual(NATIVE_V2_RECEIPT, (reports / f'{stage}-core-{name}-signer.txt').read_text())
+            self.assert_signer_command(root, boundary, 0)
+
+    def test_native_v2_malformed_receipts_fail_closed_at_all_boundaries(self):
+        label = 'V2 Signer: certificate SHA-256 digest: '
+        line = NATIVE_V2_RECEIPT.splitlines()[1]
+        controls = {
+            'empty': '',
+            'missing-sha256': NATIVE_V2_RECEIPT.replace(line + '\n', ''),
+            'arbitrary-checksum': 'SHA256 checksum: ' + 'a' * 64 + '\n',
+            'wrong-signer-label': 'V3 Signer: certificate SHA-256 digest: ' + 'a' * 64 + '\n',
+            'wrong-digest-label': 'V2 Signer: certificate SHA-1 digest: ' + 'a' * 64 + '\n',
+            'empty-digest': label + '\n',
+            'short-digest': label + 'a' * 63 + '\n',
+            'long-digest': label + 'a' * 65 + '\n',
+            'nonhex-digest': label + 'g' * 64 + '\n',
+            'leading-junk': 'prefix ' + line + '\n',
+            'trailing-junk': line + ' suffix\n',
+        }
+        for boundary in RECEIPT_BOUNDARIES:
+            for control, output in controls.items():
+                with self.subTest(boundary=boundary, control=control):
+                    outputs = dict.fromkeys(RECEIPT_BOUNDARIES, NATIVE_V2_RECEIPT)
+                    outputs[boundary] = output
+                    root, result, calls = self.run_phases(metadata_outputs=outputs)
+                    self.assert_metadata_stops_dependents(root, result, calls, boundary, 1)
+                    stage, name = boundary.split('-')
+                    receipt = root / f'app/build/reports/device-validation/standard/{stage}-core-{name}-signer.txt'
+                    self.assertEqual(output, receipt.read_text())
+
+    def test_native_v2_valid_stdout_nonzero_preserves_actual_status_at_all_boundaries(self):
+        for boundary in RECEIPT_BOUNDARIES:
+            with self.subTest(boundary=boundary):
+                root, result, calls = self.run_phases(
+                    metadata_outputs=dict.fromkeys(RECEIPT_BOUNDARIES, NATIVE_V2_RECEIPT),
+                    metadata_exits={boundary: 25})
+                self.assert_metadata_stops_dependents(root, result, calls, boundary, 25, verify_status=25)
+                stage, name = boundary.split('-')
+                receipt = root / f'app/build/reports/device-validation/standard/{stage}-core-{name}-signer.txt'
+                self.assertEqual(NATIVE_V2_RECEIPT, receipt.read_text())
 
     def test_connected_signer_transition_fresh_install_executes_original_core(self):
         root, result, calls = self.run_phases(signer_transition=True)

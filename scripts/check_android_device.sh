@@ -125,7 +125,7 @@ adb logcat -c 2>/dev/null || true
 adb logcat -b crash -c 2>/dev/null || true
 
 capture_apk_metadata() {
-  local stage="$1" signer candidate name apk
+  local stage="$1" signer candidate name apk verify_result
   signer="$(command -v apksigner)" || signer=''
   if [[ -z "$signer" ]]; then
     # Use an already-installed SDK tool; never install tooling or inspect keys.
@@ -142,8 +142,12 @@ capture_apk_metadata() {
     fi
     sha256sum "$apk" > "${batstats_report_dir}/${stage}-${name}-sha256.txt" || return $?
     grep -Eq '^[[:xdigit:]]{64}  ' "${batstats_report_dir}/${stage}-${name}-sha256.txt" || return 1
-    "$signer" verify --print-certs "$apk" > "${batstats_report_dir}/${stage}-${name}-signer.txt" || return $?
-    grep -Eq '^Signer #[0-9]+ certificate SHA-256 digest: [[:xdigit:]]{64}$' \
+    verify_result=0
+    "$signer" verify --print-certs "$apk" > "${batstats_report_dir}/${stage}-${name}-signer.txt" || verify_result=$?
+    printf 'tool_path=%s\nverify_exit=%s\n' "$signer" "$verify_result" \
+      > "${batstats_report_dir}/${stage}-${name}-signer-command.txt" || return $?
+    [[ "$verify_result" == 0 ]] || return "$verify_result"
+    grep -Eq '^(Signer #[0-9]+|V2 Signer:) certificate SHA-256 digest: [[:xdigit:]]{64}$' \
       "${batstats_report_dir}/${stage}-${name}-signer.txt" || return 1
   done
 }
