@@ -49,6 +49,37 @@ with sqlite3.connect(':memory:') as db:
         db.execute(query('clearAll', 'BatteryDao'))
 print('PASS actual BatteryDao trim SQL: full import + native write keeps exactly 99800 newest timestamp/id rows, tied cutoff, below/at-target and zero-limit controls')
 
+max_sessions = int(re.search(r'const val MAX_SESSIONS = ([\d_]+)', limits)[1].replace('_', ''))
+with sqlite3.connect(':memory:') as db:
+    db.row_factory = sqlite3.Row
+    entity = next(e for e in schema['entities'] if e['tableName'] == 'charge_sessions')
+    db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    for index in entity.get('indices', []):
+        db.execute(index['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    # A full allowed import followed by one native boundary, including a tie at the cutoff.
+    db.executemany("INSERT INTO charge_sessions(sessionId,type,startTime,endTime,source) VALUES(?,'DISCHARGE',?,?,'import:BatteryManager')",
+                   ((f'import:s{i:05d}', max(2, i), max(2, i) + 1) for i in range(max_sessions, 0, -1)))
+    db.execute("INSERT INTO charge_sessions(sessionId,type,startTime,activeKey) VALUES('native-boundary','CHARGE',?,1)", (max_sessions + 1,))
+    args = {'from': 0, 'to': max_sessions + 1, 'limit': max_sessions}
+    rows = db.execute(query('latestSessionsBetween', 'SessionDao'), args).fetchall()
+    expected = [f'import:s{i:05d}' for i in range(2, max_sessions + 1)] + ['native-boundary']
+    assert [r['sessionId'] for r in rows] == expected, 'ALL session export must keep newest 10000 in chronological/sessionId order across a tied cutoff'
+    assert len(db.execute(query('sessionsBetween', 'SessionDao'), {'from': 1, 'to': max_sessions + 1}).fetchall()) == max_sessions + 1, 'Explicit range must leave overflow for snapshot rejection'
+    args['to'] = max_sessions
+    assert len(db.execute(query('latestSessionsBetween', 'SessionDao'), args).fetchall()) == max_sessions, 'ALL export must honor its upper endpoint before applying the cap'
+    assert db.execute('SELECT COUNT(*) FROM charge_sessions').fetchone()[0] == max_sessions + 1, 'Session export deleted stored overflow'
+    db.execute(query('clearAll', 'SessionDao'))
+    for sid, start, end, last in [('after', 201, 250, None), ('b', 200, 220, None), ('a', 200, 220, None),
+                                  ('ends-at-from', 50, 100, None), ('last-sample-at-from', 60, None, 100),
+                                  ('before', 10, 99, None), ('no-end', 150, None, None)]:
+        db.execute("INSERT INTO charge_sessions(sessionId,type,startTime,endTime,lastSampleTime) VALUES(?,'DISCHARGE',?,?,?)", (sid, start, end, last))
+    expected = ['ends-at-from', 'last-sample-at-from', 'no-end', 'a', 'b']
+    for method in ('sessionsBetween', 'latestSessionsBetween'):
+        rows = db.execute(query(method, 'SessionDao'), {'from': 100, 'to': 200, 'limit': max_sessions}).fetchall()
+        assert [r['sessionId'] for r in rows] == expected, 'Session export changed inclusive overlap/coalesced endpoints or equal-time ordering'
+    assert db.execute('SELECT COUNT(*) FROM charge_sessions').fetchone()[0] == 7, 'Overlap export changed stored sessions'
+print('PASS actual SessionDao export SQL: 10001 stored/newest10000, chronological cutoff ties, unchanged count, untruncated explicit range, inclusive overlap/endpoints')
+
 with sqlite3.connect(':memory:') as db:
     for entity in schema['entities']:
         db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))

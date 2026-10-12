@@ -14,6 +14,7 @@ internal open class UnusedSessionDao : SessionDao {
     override suspend fun active(): ChargeSession? = error("Unused DAO operation")
     override fun activeFlow(): Flow<ChargeSession?> = error("Unused DAO operation")
     override suspend fun sessionsBetween(from: Long, to: Long): List<ChargeSession> = error("Unused DAO operation")
+    override suspend fun latestSessionsBetween(from: Long, to: Long, limit: Int): List<ChargeSession> = error("Unused DAO operation")
     override suspend fun closedSessionsBetween(from: Long, to: Long): List<ChargeSession> = error("Unused DAO operation")
     override suspend fun closedDischargeSessionsBetween(from: Long, to: Long): List<ChargeSession> = error("Unused DAO operation")
     override suspend fun closeInterrupted(reason: String): Unit = error("Unused DAO operation")
