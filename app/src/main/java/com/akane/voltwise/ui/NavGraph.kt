@@ -8,6 +8,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberDecoratedNavEntries
@@ -151,6 +152,16 @@ fun NavGraph(
             StatusScreen(onBack = { popBack(key) })
         }
     }
+    DecoratedTabContent(topLevelBackStack, modifier, entryProvider)
+}
+
+/** Shared production owner seam: all tab entries stay decorated even when their content is off-screen. */
+@Composable
+internal fun DecoratedTabContent(
+    topLevelBackStack: TopLevelBackStack,
+    modifier: Modifier = Modifier,
+    entryProvider: (NavKey) -> NavEntry<NavKey>,
+) {
     val entries = TOP_LEVEL_TABS.associateWith { tab ->
         key(tab) {
             rememberDecoratedNavEntries(

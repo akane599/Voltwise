@@ -42,6 +42,7 @@ import com.akane.voltwise.ui.components.AppIconLoader
 import com.akane.voltwise.ui.components.LocalAppIconLoader
 import com.akane.voltwise.ui.components.chart.ProvideTimeAxisFormatter
 import com.akane.voltwise.ui.navigation.Routes
+import com.akane.voltwise.ui.navigation.TopLevelBackStack
 import com.akane.voltwise.ui.navigation.openDestination
 import com.akane.voltwise.ui.navigation.rememberTopLevelBackStack
 import org.koin.compose.koinInject
@@ -107,6 +108,15 @@ private fun TabShell(destination: String?, onDestinationHandled: () -> Unit) {
         }
     }
 
+    AdaptiveTabShell(topLevelBackStack) { modifier -> NavGraph(topLevelBackStack, modifier) }
+}
+
+/** The same content composition owns navigation in both layouts; only the surrounding chrome changes. */
+@Composable
+internal fun AdaptiveTabShell(
+    topLevelBackStack: TopLevelBackStack,
+    content: @Composable (Modifier) -> Unit,
+) {
     val useRail = LocalConfiguration.current.screenWidthDp >= RAIL_MIN_WIDTH_DP
 
     // Each inset is owned by exactly one layer, so it's applied exactly once:
@@ -149,8 +159,8 @@ private fun TabShell(destination: String?, onDestinationHandled: () -> Unit) {
                 }
             },
         ) { padding ->
-            if (useRail) {
-                Row(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxSize()) {
+                if (useRail) {
                     // Full-bleed: keeps its own default (Vertical + Start) insets rather than
                     // whatever the Row/Scaffold would otherwise hand it, so it isn't padded twice.
                     NavigationRail {
@@ -164,21 +174,19 @@ private fun TabShell(destination: String?, onDestinationHandled: () -> Unit) {
                             )
                         }
                     }
-                    NavGraph(
-                        topLevelBackStack,
-                        Modifier
-                            .weight(1f)
-                            .padding(padding)
-                            .consumeWindowInsets(padding)
+                }
+                content(
+                    Modifier
+                        .weight(1f)
+                        .padding(padding)
+                        .consumeWindowInsets(padding)
+                        .then(
                             // Start is the rail's, not the content's, even though the rail didn't
                             // consume it from the shared ambient insets itself.
-                            .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start)),
-                    )
-                }
-            } else {
-                NavGraph(
-                    topLevelBackStack,
-                    Modifier.padding(padding).consumeWindowInsets(padding),
+                            if (useRail) Modifier.consumeWindowInsets(
+                                WindowInsets.safeDrawing.only(WindowInsetsSides.Start),
+                            ) else Modifier,
+                        ),
                 )
             }
         }
