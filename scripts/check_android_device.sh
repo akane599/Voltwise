@@ -36,6 +36,9 @@ batstats_on="$batstats_cadence#screenOnLastReleaseAfterStampProducesImmediateHan
 batstats_off="$batstats_cadence#screenOffLastReleaseAfterStampProducesImmediateHandoff"
 batstats_shizuku=com.akane.voltwise.battery.shizuku.ShizukuDeviceTest#shellServiceAuthorizationHelperRestartAndAccessLossPreserveOrdinaryReadings
 batstats_phase=initialization
+batstats_prepare_result=0
+batstats_metadata_result=0
+batstats_remove_result=0
 batstats_install_result=1
 batstats_restore_result=0
 batstats_ordinary_inventory=1
@@ -50,10 +53,11 @@ batstats_apks_ready=false
 write_phase_status() {
   batstats_ordinary_result=0
   local result
-  for result in "$batstats_install_result" "$batstats_ordinary_inventory" "$batstats_core_result" "$batstats_restore_result" "$batstats_on_result" "$batstats_off_result"; do
+  for result in "$batstats_prepare_result" "$batstats_metadata_result" "$batstats_install_result" "$batstats_ordinary_inventory" "$batstats_remove_result" "$batstats_core_result" "$batstats_restore_result" "$batstats_on_result" "$batstats_off_result"; do
     if [[ "$batstats_ordinary_result" == 0 && "$result" != 0 ]]; then batstats_ordinary_result="$result"; fi
   done
-  printf 'install_exit=%s\napk_restore_exit=%s\nordinary_inventory_exit=%s\nshizuku_inventory_exit=%s\ncore_exit=%s\nscreen_on_exit=%s\nscreen_off_exit=%s\nordinary_exit=%s\nshizuku_exit=%s\n' \
+  printf 'apk_prepare_exit=%s\napk_metadata_exit=%s\napk_remove_exit=%s\ninstall_exit=%s\napk_restore_exit=%s\nordinary_inventory_exit=%s\nshizuku_inventory_exit=%s\ncore_exit=%s\nscreen_on_exit=%s\nscreen_off_exit=%s\nordinary_exit=%s\nshizuku_exit=%s\n' \
+    "$batstats_prepare_result" "$batstats_metadata_result" "$batstats_remove_result" \
     "$batstats_install_result" "$batstats_restore_result" "$batstats_ordinary_inventory" "$batstats_shizuku_inventory" \
     "$batstats_core_result" "$batstats_on_result" "$batstats_off_result" "$batstats_ordinary_result" "$batstats_shizuku_result" \
     | tee "$batstats_report_dir/phase-status.txt"
@@ -120,8 +124,40 @@ adb shell rm -rf /sdcard/Download/batstats-validation-screenshots
 adb logcat -c 2>/dev/null || true
 adb logcat -b crash -c 2>/dev/null || true
 
+capture_apk_metadata() {
+  local stage="$1" signer candidate name apk
+  signer="$(command -v apksigner)" || signer=''
+  if [[ -z "$signer" ]]; then
+    # Use an already-installed SDK tool; never install tooling or inspect keys.
+    for candidate in "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"/build-tools/*/apksigner; do
+      if [[ -x "$candidate" ]]; then signer="$candidate"; fi
+    done
+  fi
+  [[ -n "$signer" ]] || { echo 'Installed apksigner is required for public APK receipts.' >&2; return 1; }
+  for name in app test; do
+    if [[ "$name" == app ]]; then
+      apk=app/build/outputs/apk/debug/app-universal-debug.apk
+    else
+      apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+    fi
+    sha256sum "$apk" > "${batstats_report_dir}/${stage}-${name}-sha256.txt" || return $?
+    grep -Eq '^[[:xdigit:]]{64}  ' "${batstats_report_dir}/${stage}-${name}-sha256.txt" || return 1
+    "$signer" verify --print-certs "$apk" > "${batstats_report_dir}/${stage}-${name}-signer.txt" || return $?
+    grep -Eq '^Signer #[0-9]+ certificate SHA-256 digest: [[:xdigit:]]{64}$' \
+      "${batstats_report_dir}/${stage}-${name}-signer.txt" || return 1
+  done
+}
+remove_inventoried_apks() {
+  local package output
+  # Fixed disposable fixture packages only. No mismatch retry or retained app data.
+  for package in com.akane.voltwise.debug.test com.akane.voltwise.debug; do
+    output="$(adb uninstall "$package")" || return $?
+    printf '%s\n' "$output" >> "${batstats_report_dir}/apk-removal.txt" || return 1
+    [[ "${output//$'\r'/}" == Success ]] || return 1
+  done
+}
 install_apks() {
-  # CI has already assembled both APKs. Never install between sleep and raw off.
+  # Use the current output pair. Never install between sleep and raw off.
   adb install -r app/build/outputs/apk/debug/app-universal-debug.apk || return $?
   adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 }
@@ -138,6 +174,22 @@ discover_inventory() {
   capture_raw "inventory-$phase" -e log true "$@" || return $?
   python3 scripts/check_instrumentation_result.py "inventory-$phase" \
     "${batstats_report_dir}/inventory-${phase}-instrumentation.txt" "$batstats_report_dir"
+}
+revalidate_inventories() {
+  local result=0 phase
+  # Compare independent FULL discoveries to the ORIGINAL expected files. Never
+  # call inventory-* parsers here: they write/replace expected authority.
+  for phase in ordinary shizuku; do
+    if [[ "$phase" == ordinary ]]; then
+      capture_raw inventory-restored-ordinary -e log true -e notAnnotation "$batstats_annotation" || { result=1; continue; }
+    else
+      capture_raw inventory-restored-shizuku -e log true -e annotation "$batstats_annotation" || { result=1; continue; }
+    fi
+    python3 scripts/check_instrumentation_result.py raw \
+      "${batstats_report_dir}/inventory-restored-${phase}-instrumentation.txt" \
+      --expected "${batstats_report_dir}/${phase}-identities.txt" || result=1
+  done
+  return "$result"
 }
 run_raw_phase() {
   capture_raw "$batstats_phase" "$@" || return $?
@@ -169,7 +221,15 @@ run_gradle_core() {
   return "$checked"
 }
 
-if install_apks; then
+if ! "$batstats_prebuilt"; then
+  # Prepare in the SAME connected build environment, strictly behind all guards.
+  ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --no-configuration-cache --stacktrace \
+    || batstats_prepare_result=$?
+  if [[ "$batstats_prepare_result" == 0 ]]; then
+    capture_apk_metadata before-core || batstats_metadata_result=$?
+  fi
+fi
+if [[ "$batstats_prepare_result" == 0 && "$batstats_metadata_result" == 0 ]] && install_apks; then
   batstats_install_result=0
   batstats_apks_ready=true
   # FULL ordinary discovery has NO cadence exclusion. Do not infer inventory from
@@ -179,20 +239,28 @@ if install_apks; then
 else
   batstats_install_result=$?
 fi
-if "$batstats_apks_ready" && [[ "$batstats_ordinary_inventory" == 0 ]]; then
+if "$batstats_apks_ready" && [[ "$batstats_ordinary_inventory" == 0 ]] \
+  && { "$batstats_prebuilt" || [[ "$batstats_shizuku_inventory" == 0 ]]; }; then
   batstats_phase=core
   if wake_device; then
     if "$batstats_prebuilt"; then
       run_raw_phase -e notAnnotation "$batstats_annotation" -e notClass "$batstats_cadence" && batstats_core_result=0 || batstats_core_result=$?
     else
-      run_gradle_core && batstats_core_result=0 || batstats_core_result=$?
-      # Connected AGP may have uninstalled both packages. Restore the pair BEFORE
-      # any raw controls, never during/after off-state preparation.
-      if install_apks; then
-        batstats_apks_ready=true
+      # Discovery owns the original expected sets; AGP now owns a FRESH install.
+      # Partial/failed removal leaves no authority to execute any raw phase.
+      batstats_apks_ready=false
+      if remove_inventoried_apks; then
+        run_gradle_core && batstats_core_result=0 || batstats_core_result=$?
+        # Retain public receipts from current AGP outputs, restore the pair, and
+        # revalidate BOTH FULL inventories before any raw controls/off preparation.
+        capture_apk_metadata after-core || batstats_metadata_result=$?
+        if [[ "$batstats_metadata_result" == 0 ]] && install_apks && revalidate_inventories; then
+          batstats_apks_ready=true
+        else
+          batstats_restore_result=$?
+        fi
       else
-        batstats_restore_result=$?
-        batstats_apks_ready=false
+        batstats_remove_result=$?
       fi
     fi
     [[ "$batstats_core_result" == 0 ]] || collect_logcat
