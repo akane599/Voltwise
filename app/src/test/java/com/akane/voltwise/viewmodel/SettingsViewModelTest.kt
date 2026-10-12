@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.lifecycle.viewModelScope
 import com.akane.voltwise.battery.data.CalibrationOverrides
 import com.akane.voltwise.battery.data.CalibrationStore
 import com.akane.voltwise.battery.data.sampling.FakeKeyValueStore
@@ -26,15 +27,19 @@ import io.github.mlmgames.settings.core.types.Toggle
 import java.io.File
 import java.io.IOException
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -42,6 +47,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -56,24 +62,30 @@ import org.junit.rules.TemporaryFolder
 class SettingsViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val store = FakeSettingsStore()
+    private val viewModels = mutableListOf<SettingsViewModel>()
 
     /** The calibration store's own preferences; "detected" is its persisted detection (unit/sign/windows). */
     private val calibrationPrefs = FakeKeyValueStore(mapOf("detected" to "MILLIAMPS/INVERTED/4"))
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
 
-    @After fun tearDown() = Dispatchers.resetMain()
+    @After fun tearDown() {
+        runTest(dispatcher) {
+            // A published value can precede DataStore's update acknowledgement on IO. Close its Main caller first.
+            viewModels.forEach { it.viewModelScope.coroutineContext.job.cancelAndJoin() }
+            dataStoreScope.coroutineContext.job.cancelAndJoin()
+        }
+        Dispatchers.resetMain()
+    }
 
     @get:Rule val folder = TemporaryFolder()
 
     /** The real settings DataStore does its file work on IO; tests wait for its values, not for virtual time. */
     private val dataStoreScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    @After fun closeDataStore() = dataStoreScope.cancel()
-
     private fun TestScope.start(settings: SettingsStore = store): Pair<SettingsViewModel, () -> SettingsUiState> {
         val calibration = CalibrationStore(calibrationPrefs, flowOf(CalibrationOverrides()), backgroundScope)
-        val vm = SettingsViewModel(settings, calibration)
+        val vm = SettingsViewModel(settings, calibration).also { viewModels += it }
         backgroundScope.launch { vm.state.collect { } }
         runCurrent()
         return vm to { vm.state.value }
@@ -304,6 +316,55 @@ class SettingsViewModelTest {
         send(vm, SettingsEvent.SetChoice(SettingsChoice.RETENTION, 1))
         vm.state.first { it.settings.dataRetentionIndex == 1 && !it.retentionUnset }
         assertFalse("picking a period ends the pause", state().retentionUnset)
+    }
+
+    @Test fun teardownJoinsDelayedDataStoreCompletionBeforeResettingMain() {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var transformFinished = false
+        lateinit var vm: SettingsViewModel
+        val dataStore = PreferenceDataStoreFactory.create(scope = dataStoreScope) {
+            File(folder.root, "delayed.preferences_pb")
+        }
+        val delayedStore = object : DataStore<Preferences> by dataStore {
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+                dataStore.updateData { preferences ->
+                    entered.complete(Unit)
+                    try {
+                        release.await()
+                        transform(preferences)
+                    } finally {
+                        // Cancellation still has to finish on Main before DataStore acknowledges the update on IO.
+                        withContext(NonCancellable + Dispatchers.Main) {
+                            delay(1) // Virtual scheduler turn, not a wall-clock sleep.
+                            transformFinished = true
+                        }
+                    }
+                }
+        }
+
+        try {
+            runTest(dispatcher) {
+                vm = start(KmpSettingsStore(delayedStore)).first
+                send(vm, SettingsEvent.SetChoice(SettingsChoice.RETENTION, 1))
+                entered.await()
+                assertFalse("the real DataStore update is held open", transformFinished)
+            }
+
+            tearDown()
+
+            assertTrue("teardown joins the delayed transform before resetting Main", transformFinished)
+            assertTrue("teardown joins the ViewModel writer", vm.viewModelScope.coroutineContext.job.isCompleted)
+            assertTrue("teardown joins the DataStore actor acknowledgement", dataStoreScope.coroutineContext.job.isCompleted)
+        } finally {
+            // Keep the deliberately broken teardown's negative control from leaking into another test.
+            Dispatchers.setMain(dispatcher)
+            runTest(dispatcher) {
+                vm.viewModelScope.coroutineContext.job.cancelAndJoin()
+                dataStoreScope.coroutineContext.job.cancelAndJoin()
+            }
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun retentionShowsTheDefaultWithoutTheRecoveryMarker() = runTest(dispatcher) {
