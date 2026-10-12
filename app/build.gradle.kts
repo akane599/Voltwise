@@ -223,6 +223,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.uiautomator)
     androidTestImplementation(composeBom)
     androidTestImplementation(libs.compose.ui.test.junit4)
+    // Compose's transitive Espresso 3.5.0 uses InputManager.getInstance, removed on API 37.
+    androidTestImplementation(libs.androidx.test.espresso.core)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.androidx.ui.tooling)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
