@@ -1,5 +1,10 @@
 package com.akane.voltwise.viewmodel
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.lifecycle.viewModelScope
 import com.akane.voltwise.battery.data.CalibrationOverrides
 import com.akane.voltwise.battery.data.CalibrationStore
 import com.akane.voltwise.battery.data.sampling.FakeKeyValueStore
@@ -12,19 +17,29 @@ import com.akane.voltwise.settings.AppSettingsSchema
 import com.akane.voltwise.settings.CurrentSignOverride
 import com.akane.voltwise.settings.CurrentUnitOverride
 import com.akane.voltwise.settings.RETENTION_FOREVER_INDEX
+import com.akane.voltwise.settings.SETTINGS_RECOVERED
 import com.akane.voltwise.settings.StatusIconValue
 import io.github.mlmgames.settings.core.SettingField
 import io.github.mlmgames.settings.core.types.Dropdown
 import io.github.mlmgames.settings.core.types.Slider
 import io.github.mlmgames.settings.core.types.TextInput
 import io.github.mlmgames.settings.core.types.Toggle
+import java.io.File
 import java.io.IOException
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -32,29 +47,45 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val store = FakeSettingsStore()
+    private val viewModels = mutableListOf<SettingsViewModel>()
 
     /** The calibration store's own preferences; "detected" is its persisted detection (unit/sign/windows). */
     private val calibrationPrefs = FakeKeyValueStore(mapOf("detected" to "MILLIAMPS/INVERTED/4"))
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
 
-    @After fun tearDown() = Dispatchers.resetMain()
+    @After fun tearDown() {
+        runTest(dispatcher) {
+            // A published value can precede DataStore's update acknowledgement on IO. Close its Main caller first.
+            viewModels.forEach { it.viewModelScope.coroutineContext.job.cancelAndJoin() }
+            dataStoreScope.coroutineContext.job.cancelAndJoin()
+        }
+        Dispatchers.resetMain()
+    }
 
-    private fun TestScope.start(): Pair<SettingsViewModel, () -> SettingsUiState> {
+    @get:Rule val folder = TemporaryFolder()
+
+    /** The real settings DataStore does its file work on IO; tests wait for its values, not for virtual time. */
+    private val dataStoreScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private fun TestScope.start(settings: SettingsStore = store): Pair<SettingsViewModel, () -> SettingsUiState> {
         val calibration = CalibrationStore(calibrationPrefs, flowOf(CalibrationOverrides()), backgroundScope)
-        val vm = SettingsViewModel(store, calibration)
+        val vm = SettingsViewModel(settings, calibration).also { viewModels += it }
         backgroundScope.launch { vm.state.collect { } }
         runCurrent()
         return vm to { vm.state.value }
@@ -250,6 +281,111 @@ class SettingsViewModelTest {
         assertEquals(covered.size, covered.toSet().size)
         assertEquals(AppSettingsSchema.fields.filter { it.meta != null }.map { it.name }.toSet(), covered.toSet())
     }
+
+    @Test fun theNotificationsOffRowFollowsWhatAndroidLastReported() = runTest(dispatcher) {
+        val (vm, state) = start()
+        // Hidden until the screen's first check, so it never flashes in for a user whose notifications are on.
+        assertTrue(state().notificationsEnabled)
+
+        send(vm, SettingsEvent.NotificationsChecked(enabled = false))
+        assertFalse("blocked notifications show the row", state().notificationsEnabled)
+
+        send(vm, SettingsEvent.NotificationsChecked(enabled = true))
+        assertTrue("turned back on (checked on resume) hides it", state().notificationsEnabled)
+        assertTrue("checking is not a setting", store.writes.isEmpty())
+    }
+
+    /** The app's [KmpSettingsStore] over a real settings file holding only what [seed] writes. */
+    private suspend fun recoveredStore(seed: suspend (DataStore<Preferences>) -> Unit): KmpSettingsStore {
+        val dataStore = PreferenceDataStoreFactory.create(scope = dataStoreScope) { File(folder.root, "settings.preferences_pb") }
+        seed(dataStore)
+        return KmpSettingsStore(dataStore)
+    }
+
+    /** The first state combined from the store (the detected calibration is never in the initial state). */
+    private suspend fun SettingsViewModel.loaded(): SettingsUiState = state.first { it.calibration.detected != null }
+
+    @Test fun retentionIsNotSetAfterSettingsRecoveredUntilAPeriodIsPicked() = runTest(dispatcher) {
+        val (vm, state) = start(recoveredStore { dataStore -> dataStore.edit { it[SETTINGS_RECOVERED] = true } })
+
+        with(vm.loaded()) {
+            assertTrue("recovered without a retention key: cleanup is paused, so the row must not claim a period", retentionUnset)
+            assertEquals("the typed settings still decode the default", 2, settings.dataRetentionIndex)
+        }
+
+        send(vm, SettingsEvent.SetChoice(SettingsChoice.RETENTION, 1))
+        vm.state.first { it.settings.dataRetentionIndex == 1 && !it.retentionUnset }
+        assertFalse("picking a period ends the pause", state().retentionUnset)
+    }
+
+    @Test fun teardownJoinsDelayedDataStoreCompletionBeforeResettingMain() {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var transformFinished = false
+        lateinit var vm: SettingsViewModel
+        val dataStore = PreferenceDataStoreFactory.create(scope = dataStoreScope) {
+            File(folder.root, "delayed.preferences_pb")
+        }
+        val delayedStore = object : DataStore<Preferences> by dataStore {
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+                dataStore.updateData { preferences ->
+                    entered.complete(Unit)
+                    try {
+                        release.await()
+                        transform(preferences)
+                    } finally {
+                        // Cancellation still has to finish on Main before DataStore acknowledges the update on IO.
+                        withContext(NonCancellable + Dispatchers.Main) {
+                            delay(1) // Virtual scheduler turn, not a wall-clock sleep.
+                            transformFinished = true
+                        }
+                    }
+                }
+        }
+
+        try {
+            runTest(dispatcher) {
+                vm = start(KmpSettingsStore(delayedStore)).first
+                send(vm, SettingsEvent.SetChoice(SettingsChoice.RETENTION, 1))
+                entered.await()
+                assertFalse("the real DataStore update is held open", transformFinished)
+            }
+
+            tearDown()
+
+            assertTrue("teardown joins the delayed transform before resetting Main", transformFinished)
+            assertTrue("teardown joins the ViewModel writer", vm.viewModelScope.coroutineContext.job.isCompleted)
+            assertTrue("teardown joins the DataStore actor acknowledgement", dataStoreScope.coroutineContext.job.isCompleted)
+        } finally {
+            // Keep the deliberately broken teardown's negative control from leaking into another test.
+            Dispatchers.setMain(dispatcher)
+            runTest(dispatcher) {
+                vm.viewModelScope.coroutineContext.job.cancelAndJoin()
+                dataStoreScope.coroutineContext.job.cancelAndJoin()
+            }
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun retentionShowsTheDefaultWithoutTheRecoveryMarker() = runTest(dispatcher) {
+        val (vm, _) = start(recoveredStore { })
+
+        with(vm.loaded()) {
+            assertFalse("a normal store without the key keeps the default period", retentionUnset)
+            assertEquals("3 months", 2, SettingsChoice.RETENTION.selectedIndex(settings))
+        }
+    }
+
+    @Test fun turnOnAsksWhileAndroidWouldStillShowItsDialogAndOpensSettingsOtherwise() {
+        fun action(sdkInt: Int = 33, granted: Boolean = false, askedBefore: Boolean = true, rationale: Boolean = false) =
+            notificationsAction(sdkInt, granted, askedBefore, rationale)
+
+        assertEquals(NotificationsAction.REQUEST_PERMISSION, action(askedBefore = false))
+        assertEquals("denied once", NotificationsAction.REQUEST_PERMISSION, action(rationale = true))
+        assertEquals("denied twice: Android no longer asks", NotificationsAction.OPEN_SETTINGS, action())
+        assertEquals("granted but switched off", NotificationsAction.OPEN_SETTINGS, action(granted = true, askedBefore = false))
+        assertEquals("no runtime permission before 13", NotificationsAction.OPEN_SETTINGS, action(sdkInt = 32, askedBefore = false))
+    }
 }
 
 /** Applies writes through the schema field, so a value of the wrong type fails as it would in kmp-settings. */
@@ -259,6 +395,7 @@ private class FakeSettingsStore : SettingsStore {
     var fail = false
 
     override val settings: Flow<AppSettings> = flow
+    override val retentionUnset: Flow<Boolean> = flowOf(false)
 
     override suspend fun set(fieldName: String, value: Any) {
         if (fail) throw IOException("disk full")

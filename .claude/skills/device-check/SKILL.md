@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # Device validation on the disposable emulator
 
-Wraps `scripts/check_android_device.sh`, the same entry point `.github/workflows/build-apk.yml` uses. The script installs a checksum-pinned official Shizuku (`scripts/prepare_shizuku.py`, needs network), uninstalls/reinstalls the app, and wipes `app/build/reports/device-validation/<group>/`. **Emulator only:** it refuses anything that isn't an `emulator-*` serial on API 36 with ranchu/goldfish hardware. Never point it at a physical phone. The shell is zsh: redirect long output to a file and check `$?`.
+Wraps `scripts/check_android_device.sh`, the same entry point `.github/workflows/build-apk.yml` uses. The script installs a checksum-pinned official Shizuku (`scripts/prepare_shizuku.py`, needs network), uninstalls/reinstalls the app, and wipes `app/build/reports/device-validation/<group>/`. **Emulator only:** it refuses anything that isn't an `emulator-*` serial on API 36 with ranchu/goldfish hardware. Never point it at a physical phone. The dev host has no KVM, so no emulator runs there (CLAUDE.md → Devices): use this skill on a KVM machine, or rely on CI's device phases. The shell is zsh: redirect long output to a file and check `$?`.
 
 1. **Emulator.** `adb devices`. If `batstats-api36` isn't running:
    `emulator -avd batstats-api36 -no-window -no-audio -gpu swiftshader_indirect &` then

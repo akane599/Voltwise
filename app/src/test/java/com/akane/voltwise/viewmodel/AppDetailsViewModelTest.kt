@@ -1,5 +1,9 @@
 package com.akane.voltwise.viewmodel
 
+import com.akane.voltwise.battery.insights.model.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import com.akane.voltwise.battery.apps.AppInfo
 import com.akane.voltwise.battery.apps.AppLabel
 import com.akane.voltwise.battery.apps.AppStatsResult
 import com.akane.voltwise.battery.util.BatteryStatsParser
@@ -52,6 +56,85 @@ class AppDetailsViewModelTest {
         runCurrent()
         return vm to { vm.state.value }
     }
+
+    @Test fun findingsFilterByUidAndPackageAndUpdateAsActiveReportChanges() = runTest {
+        val reports = MutableStateFlow<InsightReport?>(null)
+        val repository = object : AppDetailsRepository by source {
+            override fun findingsFor(uid: Int, packageName: String) = reports.map { it.appFindings(uid, packageName) }
+        }
+        val (_, state) = start(repository = repository)
+        assertTrue(state().findings.isEmpty())
+        val chrome = finding("chrome", Subject.App(CHROME_UID, CHROME), Direction.UP)
+        val down = finding("down", Subject.App(CHROME_UID, CHROME), Direction.DOWN).copy(type = FindingType.TREND, severity = Severity.INFO)
+        val other = finding("other", Subject.App(CHROME_UID, YOUTUBE), null)
+        val device = finding("device", Subject.Device, null)
+        reports.value = InsightReport(NOW, listOf(chrome, other, device, down), chrome)
+        runCurrent()
+        assertEquals(listOf(chrome, down), reports.value.appFindings(CHROME_UID, CHROME))
+        assertEquals(listOf(
+            AppFinding(chrome.key, chrome.type, chrome.severity, Direction.UP),
+            AppFinding(down.key, down.type, down.severity, Direction.DOWN),
+        ), state().findings)
+        val retained = state().findings
+        reports.value = InsightReport(NOW + 1, listOf(other, device), other)
+        runCurrent()
+        assertTrue("an upstream dismissal removes the finding without a dump refresh", state().findings.isEmpty())
+        assertEquals(2, retained.size)
+    }
+
+    @Test fun workProfileCopyDoesNotShowPersonalProfileFindings() = runTest {
+        val personal = finding("personal", Subject.App(CHROME_UID, CHROME), Direction.UP)
+        val reports = MutableStateFlow<InsightReport?>(InsightReport(NOW, listOf(personal), personal))
+        val repository = object : AppDetailsRepository by source {
+            override fun findingsFor(uid: Int, packageName: String) = reports.map { it.appFindings(uid, packageName) }
+        }
+        val workUid = 1_000_000 + CHROME_UID
+        val (_, personalState) = start(repository = repository)
+        val (_, workState) = start(uid = workUid, repository = repository)
+        assertEquals(listOf(personal.key), personalState().findings.map { it.key })
+        assertTrue("work-profile copy must not show the personal-profile finding", workState().findings.isEmpty())
+
+        val work = finding("work", Subject.App(workUid, CHROME), Direction.UP)
+        reports.value = InsightReport(NOW + 1, listOf(personal, work), personal)
+        runCurrent()
+        assertEquals(listOf(personal.key), personalState().findings.map { it.key })
+        assertEquals(listOf(work.key), workState().findings.map { it.key })
+    }
+
+    @Test fun findingsAreAnUnmodifiableSnapshot() = runTest {
+        val input = mutableListOf(finding("chrome", Subject.App(CHROME_UID, CHROME), null))
+        val repository = object : AppDetailsRepository by source {
+            override fun findingsFor(uid: Int, packageName: String) = MutableStateFlow<List<Finding>>(input)
+        }
+        val (_, state) = start(repository = repository)
+        val snapshot = state().findings
+        input.clear()
+        assertEquals(1, snapshot.size)
+        try {
+            (snapshot as MutableList<AppFinding>).clear()
+            org.junit.Assert.fail("findings must reject mutation")
+        } catch (_: UnsupportedOperationException) {
+            assertEquals(1, snapshot.size)
+        }
+    }
+
+    @Test fun findingsCarryTheirLeadEvidenceOrNullWithoutAny() = runTest {
+        val lead = Evidence(Metric.POWER_MAH_PER_H, 12.4, 3.1, MetricUnit.MAH_PER_H, 6)
+        val second = Evidence(Metric.WAKEUP_ALARMS_PER_H, 40.0, 8.0, MetricUnit.COUNT_PER_H, 6)
+        val withEvidence = finding("chrome", Subject.App(CHROME_UID, CHROME), Direction.UP).copy(evidence = listOf(lead, second))
+        val without = finding("bare", Subject.App(CHROME_UID, CHROME), null)
+        val repository = object : AppDetailsRepository by source {
+            override fun findingsFor(uid: Int, packageName: String) = MutableStateFlow(listOf(withEvidence, without))
+        }
+        val (_, state) = start(repository = repository)
+        assertEquals("the row shows the first evidence only", lead, state().findings[0].evidence)
+        assertNull("a finding without evidence maps to no line, not a crash", state().findings[1].evidence)
+    }
+
+    private fun finding(key: String, subject: Subject, direction: Direction?) = Finding(
+        key, FindingType.APP_DRAIN_ANOMALY, Severity.HIGH, Confidence.HIGH, 1.0, subject, direction,
+        emptyList(), emptyList(), emptyList(),
+    )
 
     @Test fun detailsCoverOnlyThisUidLargestFirst() = runTest {
         source.next = { AppStatsResult.Ready(detailedDump()) }
@@ -111,6 +194,86 @@ class AppDetailsViewModelTest {
         assertEquals(AppLabel.SystemProcess, system().label)
     }
 
+    @Test fun returningAfterUninstallClearsAppLabelAndDisablesAppInfo() = runTest {
+        val (vm, state) = start()
+        vm.onStart()
+        runCurrent()
+        assertEquals(AppLabel.Named("Chrome"), state().label)
+        assertTrue(state().canOpenAppInfo)
+
+        vm.onStop()
+        source.infos[CHROME] = checkNotNull(source.infos[CHROME]).copy(installed = false)
+        vm.onStart()
+        runCurrent()
+
+        assertFalse("an uninstalled package must not offer App info on return", state().canOpenAppInfo)
+        assertEquals("an uninstalled package must lose its installed-app label on return", AppLabel.Unknown, state().label)
+    }
+
+    @Test fun returningWithUnchangedAppInfoKeepsLabelWhileRereadingAndAfterwards() = runTest {
+        var reads = 0
+        var pending: CompletableDeferred<AppInfo>? = null
+        val repository = object : AppDetailsRepository by source {
+            override suspend fun info(packageName: String): AppInfo {
+                reads++
+                return pending?.await() ?: source.info(packageName)
+            }
+        }
+        val (vm, state) = start(repository = repository)
+        vm.onStart()
+        runCurrent()
+        val initialReads = reads
+        val label = AppLabel.Named("Chrome")
+        assertEquals(label, state().label)
+
+        vm.onStart()
+        runCurrent()
+        assertEquals("no extra app-info read while still started", initialReads, reads)
+
+        vm.onStop()
+        val updated = CompletableDeferred<AppInfo>()
+        pending = updated
+        vm.onStart()
+        runCurrent()
+        assertEquals("returning must re-read app info", initialReads + 1, reads)
+        assertEquals("keep the loaded label while the return read is pending", label, state().label)
+        assertTrue(state().canOpenAppInfo)
+
+        updated.complete(checkNotNull(source.infos[CHROME]))
+        runCurrent()
+        assertEquals("an unchanged installed package keeps its label", label, state().label)
+        assertTrue(state().canOpenAppInfo)
+    }
+
+    @Test fun returningCancelsPendingAppInfoSoItsLateResultCannotRestoreAnUninstalledApp() = runTest {
+        var pending: CompletableDeferred<AppInfo>? = null
+        val repository = object : AppDetailsRepository by source {
+            override suspend fun info(packageName: String): AppInfo = pending?.await() ?: source.info(packageName)
+        }
+        val (vm, state) = start(repository = repository)
+        vm.onStart()
+        runCurrent()
+        val installed = checkNotNull(source.infos[CHROME])
+        val older = CompletableDeferred<AppInfo>()
+        pending = older
+        vm.onStop()
+        vm.onStart()
+        runCurrent()
+
+        pending = null
+        source.infos[CHROME] = installed.copy(installed = false)
+        vm.onStop()
+        vm.onStart()
+        runCurrent()
+        assertFalse(state().canOpenAppInfo)
+        assertEquals(AppLabel.Unknown, state().label)
+
+        older.complete(installed)
+        runCurrent()
+        assertFalse("a cancelled read cannot restore App info after uninstall", state().canOpenAppInfo)
+        assertEquals("a cancelled read cannot restore the installed-app label", AppLabel.Unknown, state().label)
+    }
+
     @Test fun reusedApplicationUidDoesNotAttributeReplacementPackagesLiveUsageToTheRoute() = runTest {
         val base = detailedDump()
         source.next = {
@@ -140,6 +303,19 @@ class AppDetailsViewModelTest {
         })
         runCurrent()
         assertEquals(124.0, checkNotNull(state().usage).powerMah, 1e-9)
+    }
+
+    @Test fun uidOnlyRowShowsItsUsage() = runTest {
+        val uid = 10_123
+        val packageName = "UID $uid"
+        source.cached.value = dump().copy(apps = listOf(
+            BatteryStatsParser.AppPowerStats(uid, packageName, 18.5, packages = emptyList()),
+        ))
+        val (_, state) = start(uid = uid, packageName = packageName)
+
+        assertEquals(AppLabel.Unknown, state().label)
+        assertNotNull("a UID-only row still has measured usage", state().usage)
+        assertEquals(18.5, checkNotNull(state().usage).powerMah, 1e-9)
     }
 
     @Test fun unknownPackageMembershipDoesNotFallBackToTheDisplayPackage() = runTest {
@@ -211,6 +387,34 @@ class AppDetailsViewModelTest {
         assertEquals(9, history.listedIn)
     }
 
+    @Test fun returningToStartedScreenReloadsHistoryWithoutFlashingOrReadingWhileStillStarted() = runTest {
+        val repository = HistorySource(source)
+        val sessions = listOf(AppSessionUsage("deleted", NOW - DAY, 12.0))
+        repository.answer = { sessions }
+        val (vm, state) = start(repository = repository)
+        vm.onStart()
+        runCurrent()
+        val loaded = AppHistoryState.Loaded(AppHistory(sessions))
+        assertEquals(loaded, state().history)
+        val initialReads = repository.reads
+
+        val updated = CompletableDeferred<List<AppSessionUsage>>()
+        repository.answer = { updated.await() }
+        vm.onStart()
+        runCurrent()
+        assertEquals("no extra history read while still started", initialReads, repository.reads)
+
+        vm.onStop()
+        vm.onStart()
+        runCurrent()
+        assertEquals("keep loaded bars while the return read is pending", loaded, state().history)
+        updated.complete(emptyList())
+        runCurrent()
+
+        assertEquals("deleted sessions disappear on return", AppHistoryState.Loaded(AppHistory(emptyList())), state().history)
+        assertEquals(initialReads + 1, repository.reads)
+    }
+
     @Test fun aFailedHistoryReadIsAFailureNotAnEmptyHistoryAndRetryReadsAgain() = runTest {
         val repository = HistorySource(source)
         repository.answer = { throw IllegalStateException("SELECT * FROM session_app_usage WHERE packageName = 'com.android.chrome'") }
@@ -226,6 +430,30 @@ class AppDetailsViewModelTest {
 
         assertEquals(2, repository.reads)
         assertEquals(AppHistoryState.Loaded(AppHistory(sessions)), state().history)
+    }
+
+    @Test fun returningCancelsPendingHistorySoItsLateResultCannotRestoreDeletedSessions() = runTest {
+        val repository = HistorySource(source)
+        val (vm, state) = start(repository = repository)
+        vm.onStart()
+        runCurrent()
+
+        val older = CompletableDeferred<List<AppSessionUsage>>()
+        repository.answer = { older.await() }
+        vm.onEvent(AppDetailsEvent.Refresh)
+        runCurrent()
+
+        repository.answer = { emptyList() }
+        vm.onStop()
+        vm.onStart()
+        runCurrent()
+        val expected = AppHistoryState.Loaded(AppHistory(emptyList()))
+        assertEquals(expected, state().history)
+
+        older.complete(listOf(AppSessionUsage("deleted", NOW - DAY, 12.0)))
+        runCurrent()
+        assertEquals("a cancelled read cannot restore deleted history after return", expected, state().history)
+        assertTrue(warnings.isEmpty())
     }
 
     @Test fun olderHistorySuccessCannotOverwriteNewerRefreshHistory() = runTest {
@@ -300,7 +528,7 @@ class AppDetailsViewModelTest {
         vm.onEvent(AppDetailsEvent.Refresh)
         runCurrent()
         assertEquals(listOf(false, true), source.calls)
-        assertEquals(2, source.historyCalls.size)
+        assertEquals(3, source.historyCalls.size)
     }
 
     @Test fun permanentShizukuDenialIsDistinctFromOrdinaryDenial() = runTest {

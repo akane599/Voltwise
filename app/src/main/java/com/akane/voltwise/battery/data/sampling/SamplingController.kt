@@ -31,6 +31,26 @@ import java.util.concurrent.atomic.AtomicInteger
 
 internal fun shouldMarkContinuityLoss(observe: Boolean): Boolean = observe
 
+/** Immediate token ownership; cadence reads and [synchronize] belong to the sampler thread. */
+internal class SamplerDemandState(private val changed: () -> Unit) : SamplingDemand {
+    private val holders = AtomicInteger()
+    var held: Boolean = false
+        private set
+
+    // Never refresh this inside capture/schedule: a queued last release must still hand off.
+    fun synchronize() { held = holders.get() > 0 }
+
+    override fun acquire(tag: String): AutoCloseable {
+        if (holders.incrementAndGet() == 1) changed()
+        return object : AutoCloseable {
+            private val closed = AtomicBoolean()
+            override fun close() {
+                if (closed.compareAndSet(false, true) && holders.decrementAndGet() == 0) changed()
+            }
+        }
+    }
+}
+
 /**
  * A sequenced observation: [sample] and [point] hold RAW `CURRENT_NOW` (the database keeps raw
  * values). [poll] is true for timer and handoff captures (PersistPolicy), false for broadcasts
@@ -78,7 +98,7 @@ class SamplingController(
     private val handler = Handler(thread.looper)
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private val powerManager = context.getSystemService(PowerManager::class.java)
-    private val holders = AtomicInteger()
+    private val demand = SamplerDemandState { handler.post { onCadenceInputsChanged() } }
 
     @Volatile private var sink: SamplerSink? = null
 
@@ -90,7 +110,7 @@ class SamplingController(
     private var screenOn = true
     private var scheduledIntervalMs: Long? = null
 
-    private val demandHeld: Boolean get() = holders.get() > 0
+    private val demandHeld: Boolean get() = demand.held
 
     private val pollTask = Runnable {
         Log.d(LOG_TAG, "poll interval=${scheduledIntervalMs}ms demand=$demandHeld screen=${screenLabel()} monitoring=${generation != null}")
@@ -110,20 +130,7 @@ class SamplingController(
         this.sink = sink
     }
 
-    override fun acquire(tag: String): AutoCloseable {
-        val held = holders.incrementAndGet()
-        Log.d(LOG_TAG, "demand acquired tag=$tag held=$held")
-        if (held == 1) handler.post { onCadenceInputsChanged() }
-        return object : AutoCloseable {
-            private val closed = AtomicBoolean()
-            override fun close() {
-                if (!closed.compareAndSet(false, true)) return
-                val left = holders.decrementAndGet()
-                Log.d(LOG_TAG, "demand released tag=$tag held=$left")
-                if (left == 0) handler.post { onCadenceInputsChanged() }
-            }
-        }
-    }
+    override fun acquire(tag: String): AutoCloseable = demand.acquire(tag)
 
     /** Subscribes to state events and observes under [generation] until [stopMonitoring]. */
     fun startMonitoring(generation: String) {
@@ -199,6 +206,7 @@ class SamplingController(
 
     /** Demand changed: when that changes the interval, take the handoff capture now. */
     private fun onCadenceInputsChanged() {
+        demand.synchronize()
         val next = pollIntervalMs()
         if (SamplingPolicy.needsHandoffCapture(scheduledIntervalMs, next)) {
             Log.d(LOG_TAG, "handoff interval=${next}ms demand=$demandHeld screen=${screenLabel()} monitoring=${generation != null}")

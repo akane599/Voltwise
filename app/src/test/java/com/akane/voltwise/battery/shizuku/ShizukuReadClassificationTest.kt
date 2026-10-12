@@ -43,7 +43,7 @@ class ShizukuReadClassificationTest {
         val first = classifyAfterRead(true, true, pipeResult)
         assertEquals(RunResult.Error("Helper command refused", Failure.COMMAND), first)
         var retries = 0
-        val result = retryAfterTransportFailure(first) {
+        val result = retryAfterTransportFailure({ first }) {
             retries++
             RunResult.Success("retried dump")
         }
@@ -56,7 +56,7 @@ class ShizukuReadClassificationTest {
             CommandOutput.Result(error = "Unsupported command")
         })
         assertEquals(RunResult.Error("Unsupported command", Failure.COMMAND), first)
-        assertSame(first, retryAfterTransportFailure(first) { error("Unsupported command must not retry") })
+        assertSame(first, retryAfterTransportFailure({ first }) { error("Unsupported command must not retry") })
     }
 
     @Test fun acceptedTransactionReadsAndPreservesItsResult() {
@@ -73,7 +73,7 @@ class ShizukuReadClassificationTest {
         for ((running, permitted) in listOf(false to false, true to false)) {
             val first = classifyAfterRead(running, permitted, CommandOutput.Result("partial dump"))
             var retries = 0
-            val result = retryAfterTransportFailure(first) {
+            val result = retryAfterTransportFailure({ first }) {
                 retries++
                 RunResult.Success("retried dump")
             }
@@ -85,27 +85,27 @@ class ShizukuReadClassificationTest {
     @Test fun onlyTransportErrorsInvokeTheRetry() = runTest {
         for (reason in Failure.entries.filter { it != Failure.TRANSPORT }) {
             val first = RunResult.Error("original failure", reason)
-            assertSame(first, retryAfterTransportFailure(first) { error("Must not rebind for $reason") })
+            assertSame(first, retryAfterTransportFailure({ first }) { error("Must not rebind for $reason") })
         }
         val success = RunResult.Success("dump")
-        assertSame(success, retryAfterTransportFailure(success) { error("Must not retry success") })
+        assertSame(success, retryAfterTransportFailure({ success }) { error("Must not retry success") })
 
         val transport = RunResult.Error("dead binder", Failure.TRANSPORT)
         val second = RunResult.Error("still dead", Failure.TRANSPORT)
         var retries = 0
-        assertSame(second, retryAfterTransportFailure(transport) { failure ->
+        assertSame(second, retryAfterTransportFailure({ transport }) { failure ->
             assertSame(transport, failure)
             retries++
             second
         })
         assertEquals("Transport failure retries exactly once", 1, retries)
-        assertSame(transport, retryAfterTransportFailure(transport) { null })
+        assertSame(transport, retryAfterTransportFailure({ transport }) { null })
     }
 
     @Test fun retryCancellationPropagates() = runTest {
         val cancellation = CancellationException("cancelled dump")
         try {
-            retryAfterTransportFailure(RunResult.Error("dead binder", Failure.TRANSPORT)) { throw cancellation }
+            retryAfterTransportFailure({ RunResult.Error("dead binder", Failure.TRANSPORT) }) { throw cancellation }
             throw AssertionError("Cancellation must propagate")
         } catch (actual: CancellationException) {
             assertSame(cancellation, actual)

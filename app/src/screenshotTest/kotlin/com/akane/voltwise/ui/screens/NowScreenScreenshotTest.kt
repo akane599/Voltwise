@@ -1,8 +1,25 @@
 package com.akane.voltwise.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.LayoutDirection
 import com.akane.voltwise.battery.apps.AppLabel
 import com.akane.voltwise.battery.apps.AppUsageBasis
+import com.akane.voltwise.battery.insights.model.FindingType
+import com.akane.voltwise.battery.insights.model.Severity
+import com.akane.voltwise.ui.ComponentPreviews
+import com.akane.voltwise.ui.screens.now.InsightsPanel
+import com.akane.voltwise.ui.theme.spacing
+import com.akane.voltwise.viewmodel.InsightHeadline
+import com.akane.voltwise.viewmodel.InsightsSummary
 import com.akane.voltwise.battery.data.sampling.ChargerType
 import com.akane.voltwise.battery.measurement.CapacityConfidence
 import com.akane.voltwise.battery.measurement.CurrentCalibration
@@ -98,7 +115,27 @@ private fun discharging() = NowUiState(
     today = TodayState(usedMah = 1_240.0, chargedMah = 800.0, screenOnMs = 2 * HOUR + 10 * MINUTE, usedPercent = 29.5, chargedPercent = 19.0),
     health = HealthState(capacityMah = 4_210, confidence = CapacityConfidence.MEDIUM, healthPercent = 94.0),
     topApps = topApps,
+    insightsSummary = chromeHeadline,
 )
+
+/** Chrome draining more than usual, the first of three active findings. */
+private val chromeHeadline = InsightsSummary(
+    headline = InsightHeadline("APP_DRAIN_ANOMALY:com.android.chrome", FindingType.APP_DRAIN_ANOMALY, Severity.HIGH, "com.android.chrome"),
+    activeFindingCount = 3,
+)
+
+/** A device finding: no app to name. */
+private val dozeHeadline = InsightsSummary(
+    headline = InsightHeadline("DOZE_BLOCKED:device", FindingType.DOZE_BLOCKED, Severity.MEDIUM, null),
+    activeFindingCount = 1,
+)
+
+private val allGood = InsightsSummary(headline = null, activeFindingCount = 0)
+
+/** Analysed, nothing found, but too few sessions with app data to judge apps yet. */
+private val learning = InsightsSummary(headline = null, activeFindingCount = 0, learning = true)
+
+private val changes = InsightsSummary(headline = null, activeFindingCount = 0, changeCount = 1)
 
 private fun charging() = discharging().copy(
     hero = HeroState(
@@ -125,6 +162,7 @@ private fun charging() = discharging().copy(
         basis = AppUsageBasis.ABSOLUTE,
         capturedAtMs = FIXED_TIME_MS - 2 * 24 * HOUR,
     ),
+    insightsSummary = allGood,
 )
 
 /**
@@ -149,9 +187,11 @@ private fun monitoringOff() = discharging().copy(
     ),
     today = TodayState(usedMah = 1_240.0, chargedMah = 800.0, screenOnMs = 2 * HOUR + 10 * MINUTE),
     health = null,
+    // Sessions recorded, never analysed: the Insights card invites a first run.
+    insightsSummary = null,
 )
 
-/** First launch: a reading, nothing recorded yet, no per-app data. */
+/** First launch: a reading, nothing recorded yet, no per-app data (and so no Insights card). */
 private fun empty() = NowUiState(
     nowMs = FIXED_TIME_MS,
     hero = HeroState(
@@ -167,7 +207,11 @@ private fun empty() = NowUiState(
 
 @Composable
 private fun NowPreviewContent(state: NowUiState) {
-    NowContent(state = state, onEvent = {})
+    // The headline's app label is the screen's lookup; previews name it directly.
+    val insightsApp = state.insightsSummary?.headline?.packageName?.let { packageName ->
+        topApps.rows.firstOrNull { it.packageName == packageName }?.label
+    }
+    NowContent(state = state, onEvent = {}, insightsApp = insightsApp)
 }
 
 @PreviewTest
@@ -207,4 +251,61 @@ fun NowScreenCalibrationPreview() {
     ScreenshotTheme {
         NowPreviewContent(discharging().copy(calibrationNotice = CurrentCalibration(CurrentUnit.MILLIAMPS, CurrentSign.NORMAL)))
     }
+}
+
+/** The Insights card's states: an app headline, a device headline, all good, and not analysed yet. */
+@Composable
+private fun InsightsCardStates() {
+    ScreenshotTheme {
+        Column(
+            Modifier.padding(MaterialTheme.spacing.md),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm),
+        ) {
+            val card = Modifier.fillMaxWidth()
+            InsightsPanel(chromeHeadline, AppLabel.Named("Chrome"), onOpenInsights = {}, onOpenFinding = {}, modifier = card)
+            InsightsPanel(dozeHeadline, null, onOpenInsights = {}, onOpenFinding = {}, modifier = card)
+            InsightsPanel(allGood, null, onOpenInsights = {}, onOpenFinding = {}, modifier = card)
+            InsightsPanel(null, null, onOpenInsights = {}, onOpenFinding = {}, modifier = card)
+        }
+    }
+}
+
+/** Analysed and quiet, but too few sessions with app data: "still learning" instead of "all good". */
+@PreviewTest
+@ComponentPreviews
+@Composable
+fun NowInsightsCardLearningPreview() {
+    ScreenshotTheme {
+        InsightsPanel(
+            learning, null, onOpenInsights = {}, onOpenFinding = {},
+            modifier = Modifier.fillMaxWidth().padding(MaterialTheme.spacing.md),
+        )
+    }
+}
+
+/** No concerns, but a trend Insights lists under Changes: a neutral pointer, never "all good". */
+@PreviewTest
+@ComponentPreviews
+@Composable
+fun NowInsightsCardChangesPreview() {
+    ScreenshotTheme {
+        InsightsPanel(
+            changes, null, onOpenInsights = {}, onOpenFinding = {},
+            modifier = Modifier.fillMaxWidth().padding(MaterialTheme.spacing.md),
+        )
+    }
+}
+
+@PreviewTest
+@ComponentPreviews
+@Composable
+fun NowInsightsCardPreview() {
+    InsightsCardStates()
+}
+
+@PreviewTest
+@Preview(name = "RtlLargeFont", widthDp = 400, fontScale = 1.5f)
+@Composable
+fun NowInsightsCardRtlPreview() {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { InsightsCardStates() }
 }

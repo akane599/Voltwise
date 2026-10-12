@@ -12,11 +12,21 @@ import com.akane.voltwise.battery.data.db.BatteryDatabase
 import com.akane.voltwise.battery.data.db.ChargeSession
 import com.akane.voltwise.battery.data.db.SessionAppUsage
 import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.insights.model.Direction
+import com.akane.voltwise.battery.insights.model.Evidence
+import com.akane.voltwise.battery.insights.model.Finding
+import com.akane.voltwise.battery.insights.model.FindingType
+import com.akane.voltwise.battery.insights.model.InsightReport
+import com.akane.voltwise.battery.insights.model.Severity
+import com.akane.voltwise.battery.insights.model.Subject
 import com.akane.voltwise.battery.util.BatteryStatsParser
+import java.util.Collections
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,12 +36,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** One discharge session with per-app data: this app's mAh in it, or null when it wasn't among the session's top 30. */
+/** One discharge session with per-app data: this app's mAh in it, or null when the app wasn't individually recorded. */
 @Immutable
 data class AppSessionUsage(val sessionId: String, val startMs: Long, val powerMah: Double?)
 
 /** [AppStatsReader] plus this app's history across stored sessions. */
 interface AppDetailsRepository : AppStatsReader {
+    /** InsightRepository.report owns status filtering: DISMISSED and RESOLVED never reach this flow. */
+    fun findingsFor(uid: Int, packageName: String): Flow<List<Finding>>
+
     /**
      * The sessions overlapping [fromMs]..[toMs] that [inAppHistory] keeps, oldest first, each with this app's row
      * ([isSameApp]) when the session listed it.
@@ -60,7 +73,10 @@ internal fun SessionAppUsage.isSameApp(uid: Int, packageName: String): Boolean =
 class DefaultAppDetailsRepository(
     reader: AppStatsReader,
     private val database: BatteryDatabase,
+    private val insights: Flow<InsightReport?>,
 ) : AppDetailsRepository, AppStatsReader by reader {
+    override fun findingsFor(uid: Int, packageName: String): Flow<List<Finding>> = insights.map { it.appFindings(uid, packageName) }
+
     override suspend fun history(uid: Int, packageName: String, fromMs: Long, toMs: Long): List<AppSessionUsage> = withContext(Dispatchers.IO) {
         val sessions = database.sessionDao().sessionsBetween(fromMs, toMs)
             .filter { it.inAppHistory() }
@@ -71,6 +87,23 @@ class DefaultAppDetailsRepository(
         sessions.map { AppSessionUsage(it.sessionId, it.startTime, rows[it.sessionId]?.powerMah) }
     }
 }
+
+/** Selects this uid and package from the active-only report, keeping copies in other profiles separate. */
+internal fun InsightReport?.appFindings(uid: Int, packageName: String): List<Finding> =
+    this?.findings?.filter {
+        val app = it.subject as? Subject.App
+        app != null && app.uid == uid && app.packageName == packageName
+    }.orEmpty()
+
+/** One active finding about this app; [evidence] is the finding's lead evidence (its row's one line), when it has any. */
+@Immutable
+data class AppFinding(
+    val key: String,
+    val type: FindingType,
+    val severity: Severity,
+    val direction: Direction?,
+    val evidence: Evidence? = null,
+)
 
 /** A wakelock's effect: [CPU] keeps the processor awake (partial); [SCREEN] keeps the display on. */
 enum class WakelockKind { CPU, SCREEN }
@@ -161,6 +194,8 @@ data class AppDetailsUiState(
     val startedAtMs: Long? = null,
     val usage: AppUsageDetails? = null,
     val history: AppHistoryState = AppHistoryState.Loading,
+    /** An unmodifiable snapshot of this uid and package's active findings. */
+    val findings: List<AppFinding> = emptyList(),
 )
 
 sealed interface AppDetailsEvent {
@@ -171,6 +206,8 @@ sealed interface AppDetailsEvent {
     data object AllowShizuku : AppDetailsEvent
     /** Reads the history again after [AppHistoryState.Failed]. */
     data object RetryHistory : AppDetailsEvent
+    /** Opens the details of the finding with [key]. */
+    data class OpenFinding(val key: String) : AppDetailsEvent
 }
 
 /**
@@ -188,14 +225,13 @@ class AppDetailsViewModel(
     private val loader = StatsLoader(viewModelScope, source)
     private val info = MutableStateFlow<AppInfo?>(null)
     private val infoLoaded = MutableStateFlow(false)
+    private var infoJob: Job? = null
     private val history = MutableStateFlow<AppHistoryState>(AppHistoryState.Loading)
     private var historyJob: Job? = null
+    private var started = false
 
     init {
-        viewModelScope.launch {
-            info.value = source.infoOrNull(packageName)
-            infoLoaded.value = true
-        }
+        loadInfo()
         loadHistory()
     }
 
@@ -204,8 +240,8 @@ class AppDetailsViewModel(
         combine(info, infoLoaded, ::Pair),
         loader.loading,
         loader.problem,
-        history,
-    ) { snapshot, (info, loaded), loading, problem, history ->
+        combine(history, source.findingsFor(uid, packageName), ::Pair),
+    ) { snapshot, (info, loaded), loading, problem, (history, findings) ->
         AppDetailsUiState(
             uid = uid,
             packageName = packageName,
@@ -218,6 +254,7 @@ class AppDetailsViewModel(
             startedAtMs = snapshot?.startedAt,
             usage = snapshot?.let { details(it, uid, packageName) },
             history = history,
+            findings = Collections.unmodifiableList(findings.map { AppFinding(it.key, it.type, it.severity, it.direction, it.evidence.firstOrNull()) }),
         )
     }.flowOn(computeDispatcher).stateIn(
         viewModelScope,
@@ -225,9 +262,19 @@ class AppDetailsViewModel(
         AppDetailsUiState(uid, packageName),
     )
 
-    fun onStart() = loader.start()
+    fun onStart() {
+        if (!started) {
+            loadInfo()
+            loadHistory()
+        }
+        started = true
+        loader.start()
+    }
 
-    fun onStop() = loader.stop()
+    fun onStop() {
+        started = false
+        loader.stop()
+    }
 
     fun onEvent(event: AppDetailsEvent) {
         when (event) {
@@ -237,7 +284,16 @@ class AppDetailsViewModel(
             }
             AppDetailsEvent.RetryHistory -> loadHistory()
             // Navigation, the App info intent and Shizuku's permission prompt are the screen wrapper's.
-            AppDetailsEvent.Back, AppDetailsEvent.OpenAppInfo, AppDetailsEvent.OpenAccessSetup, AppDetailsEvent.AllowShizuku -> Unit
+            AppDetailsEvent.Back, AppDetailsEvent.OpenAppInfo, AppDetailsEvent.OpenAccessSetup, AppDetailsEvent.AllowShizuku,
+            is AppDetailsEvent.OpenFinding -> Unit
+        }
+    }
+
+    private fun loadInfo() {
+        infoJob?.cancel()
+        infoJob = viewModelScope.launch {
+            info.value = source.infoOrNull(packageName)
+            infoLoaded.value = true
         }
     }
 
@@ -270,7 +326,9 @@ class AppDetailsViewModel(
         /** Details for this identity, or null when its row or application package membership is unavailable. */
         fun details(snapshot: BatteryStatsParser.FullSnapshot, uid: Int, packageName: String): AppUsageDetails? {
             val app = snapshot.apps.firstOrNull { it.uid == uid } ?: return null
-            if (!BatteryStatsParser.isSystemUid(uid) && packageName !in app.packages) return null
+            if (!BatteryStatsParser.isSystemUid(uid) && packageName !in app.packages &&
+                !(app.packages.isEmpty() && packageName == BatteryStatsParser.displayNameFor(uid, emptyList()))
+            ) return null
             val total = snapshot.apps.sumOf { it.powerMah.coerceAtLeast(0.0) }
             val network = snapshot.network.firstOrNull { it.uid == uid }
             return AppUsageDetails(

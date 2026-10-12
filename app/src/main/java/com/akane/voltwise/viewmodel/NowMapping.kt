@@ -2,6 +2,7 @@ package com.akane.voltwise.viewmodel
 
 import com.akane.voltwise.battery.data.BatteryRepository
 import com.akane.voltwise.battery.data.SessionDrain
+import com.akane.voltwise.battery.data.usableStoredEstimates
 import com.akane.voltwise.battery.data.db.BatterySample
 import com.akane.voltwise.battery.data.db.ChargeSession
 import com.akane.voltwise.battery.data.db.DailySummary
@@ -152,7 +153,7 @@ internal object NowMapping {
 
     /** The newest sessions' stored estimates → [HealthSummary] (the rule the Health screen shares). */
     fun healthSummary(sessions: List<ChargeSession>, designUah: Long?): HealthSummary? = HealthSummary.withDesign(
-        sessions.mapNotNull { HealthSummary.storedEstimate(it.capacityEstimateMah, it.capacityConfidence, it.capacityBasis) },
+        usableStoredEstimates(sessions),
         designUah,
     )
 

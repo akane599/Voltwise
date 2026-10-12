@@ -1,9 +1,10 @@
 package com.akane.voltwise.battery.apps
 
-import android.os.Build
 import android.os.SystemClock
 import com.akane.voltwise.battery.diagnostics.DiagnosticCode
+import com.akane.voltwise.battery.util.BatteryStatsBinaryOutput
 import com.akane.voltwise.battery.util.BatteryStatsParser
+import com.akane.voltwise.battery.util.BatteryStatsProtoParser
 import com.akane.voltwise.battery.util.DumpOutput
 import com.akane.voltwise.battery.util.ShellRunner
 import kotlinx.coroutines.CancellationException
@@ -34,7 +35,7 @@ class ShellRunnerStatsShell(private val shell: ShellRunner) : StatsShell {
 }
 
 /**
- * The one `dumpsys batterystats -c --charged` reader. Concurrent callers join the dump in flight (a
+ * The one structured `dumpsys batterystats --proto --charged` reader. Concurrent callers join the dump in flight (a
  * [Mutex] guards it and the cache); the dump runs in [scope], so a caller that goes away does not
  * cancel it for the others. The last good snapshot answers for [TTL_MS] unless `force`, and only while
  * the access mode it was read with is still current. Parsing runs on [parseDispatcher]. Callers never
@@ -124,10 +125,10 @@ class AppStatsRepository(
             }
             is ShellRunner.Outcome.Success -> {
                 val parsed = withContext(parseDispatcher) {
-                    BatteryStatsParser.parseCheckin(outcome.output.lineSequence(), sdkInt = Build.VERSION.SDK_INT)
+                    BatteryStatsBinaryOutput.decode(outcome.output)?.let(BatteryStatsProtoParser::parse)
                 }
                 // Partial rejection stays READY with accepted rows; only total relevant rejection is a format failure.
-                if (!parsed.hasValidWindow || parsed.hasOnlyRejectedAppPowerRecords) {
+                if (parsed == null || !parsed.hasValidWindow || parsed.hasOnlyRejectedAppPowerRecords) {
                     onDiagnostic(DiagnosticCode.ADVANCED_FORMAT_INVALID)
                     AppStatsResult.Failed(FORMAT_UNAVAILABLE) to null
                 } else {
@@ -148,7 +149,7 @@ class AppStatsRepository(
     }
 
     companion object {
-        const val COMMAND = "dumpsys batterystats -c --charged"
+        const val COMMAND = BatteryStatsBinaryOutput.COMMAND
         const val TTL_MS = 60_000L
         const val FORMAT_UNAVAILABLE = "Battery statistics format unavailable or incomplete"
     }

@@ -29,6 +29,7 @@ import com.akane.voltwise.battery.data.sampling.ChargerType
 import com.akane.voltwise.battery.data.sampling.DailySummaryReplay
 import com.akane.voltwise.battery.data.sampling.SessionReport
 import com.akane.voltwise.battery.data.resolveFullUah
+import com.akane.voltwise.battery.data.usableStoredEstimates
 import com.akane.voltwise.battery.measurement.BatteryReading
 import com.akane.voltwise.battery.measurement.CapacityConfidence
 import com.akane.voltwise.battery.measurement.CurrentCalibration
@@ -504,7 +505,7 @@ class SessionDetailsViewModel(
         source.settings.map { it.designCapacityOverrideMah }.distinctUntilChanged(),
     ) { sessions, designMah ->
         HealthSummary.of(
-            sessions.mapNotNull { HealthSummary.storedEstimate(it.capacityEstimateMah, it.capacityConfidence, it.capacityBasis) },
+            usableStoredEstimates(sessions),
             designMah,
         )?.estimate?.fullUah
     }.distinctUntilChanged()

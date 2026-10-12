@@ -106,6 +106,26 @@
     <string name="now_apps_empty">No per-app data yet.</string>
     <string name="now_apps_open">Open Apps</string>
 
+    <!-- Insights card -->
+    <string name="now_insights_title">Insights</string>
+    <string name="now_insights_never">Not analyzed yet. Open Insights to look for apps and settings that drain more than usual.</string>
+    <string name="now_insights_all_good">All good: nothing is draining more than usual.</string>
+    <string name="now_insights_learning">Still learning: not enough sessions with app data to compare yet.</string>
+    <!-- The headline finding: %1$s is the app's name, %2$s what was found (e.g. "Draining more than usual") -->
+    <string name="now_insights_headline_app">%1$s · %2$s</string>
+    <!-- Read by TalkBack for the headline row: %1$s is "Severity: High", %2$s the headline text -->
+    <string name="now_insights_headline_description">%1$s. %2$s</string>
+    <string name="now_insights_open_finding">Open details</string>
+    <plurals name="now_insights_findings">
+        <item quantity="one">%d finding</item>
+        <item quantity="other">%d findings</item>
+    </plurals>
+    <!-- No concerns, but informational changes (trends Insights lists under Changes): %d is how many -->
+    <plurals name="now_insights_changes">
+        <item quantity="one">No concerns · %d change to review</item>
+        <item quantity="other">No concerns · %d changes to review</item>
+    </plurals>
+
     <!-- Current calibration notice -->
     <string name="now_eta_estimating_full">Estimating time to full</string>
 </resources>

@@ -4,6 +4,7 @@ import androidx.room.*
 import com.akane.voltwise.battery.apps.AppUsageBasis
 import com.akane.voltwise.battery.apps.AppUsageRow
 import com.akane.voltwise.battery.apps.AppUsageStatus
+import com.akane.voltwise.battery.apps.DeviceWaker
 import com.akane.voltwise.battery.data.HistoryLimits
 import com.akane.voltwise.battery.data.SessionEvidence
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +29,9 @@ interface BatteryDao {
     @Query("SELECT * FROM battery_samples ORDER BY timestamp DESC LIMIT 1")
     suspend fun lastSample(): BatterySample?
 
+    @Query("SELECT * FROM battery_samples WHERE substr(source, 1, 7) != 'import:' ORDER BY timestamp DESC LIMIT 1")
+    suspend fun lastLocalSample(): BatterySample?
+
     @Query("SELECT * FROM battery_samples WHERE timestamp BETWEEN :from AND :to ORDER BY timestamp ASC")
     fun samplesBetween(from: Long, to: Long): Flow<List<BatterySample>>
 
@@ -44,12 +48,8 @@ interface BatteryDao {
     @Query("WITH buckets AS (SELECT MAX(id) AS representativeId, MAX(CASE WHEN observationId IS NULL OR boundaryReason IS NOT NULL OR currentNowUa IS NULL OR voltageMv IS NULL OR temperatureDeciC IS NULL THEN 1 ELSE 0 END) OR COUNT(DISTINCT observationId) > 1 AS discontinuity FROM battery_samples WHERE sessionId = :sessionId AND timestamp BETWEEN :from AND :to GROUP BY (timestamp - :from) / :bucketMs) SELECT s.timestamp, s.currentNowUa, s.voltageMv, s.temperatureDeciC, s.observationId, s.source, b.discontinuity FROM battery_samples s JOIN buckets b ON s.id = b.representativeId ORDER BY s.timestamp, s.id")
     suspend fun sessionChartSamples(sessionId: String, from: Long, to: Long, bucketMs: Long): List<SessionChartReading>
 
-    /**
-     * Keeps the newest [limit] samples by timestamp: one seek on the timestamp index finds the
-     * (limit + 1)-th newest timestamp and everything at or before it goes. Nothing is deleted while
-     * fewer rows exist (the subquery is NULL).
-     */
-    @Query("DELETE FROM battery_samples WHERE timestamp <= (SELECT timestamp FROM battery_samples ORDER BY timestamp DESC LIMIT 1 OFFSET :limit)")
+    /** Keeps exactly the newest [limit] samples by timestamp, then id; no deletion at or below the limit. */
+    @Query("DELETE FROM battery_samples WHERE id IN (SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC LIMIT -1 OFFSET :limit)")
     suspend fun boundStorage(limit: Int = HistoryLimits.SAMPLE_TRIM_TARGET)
 
     @Query("DELETE FROM battery_samples")
@@ -87,8 +87,16 @@ interface SessionDao {
     @Query("SELECT * FROM charge_sessions WHERE activeKey = 1 LIMIT 1")
     fun activeFlow(): Flow<ChargeSession?>
 
-    @Query("SELECT * FROM charge_sessions WHERE startTime <= :to AND COALESCE(endTime, lastSampleTime, startTime) >= :from ORDER BY startTime")
+    @Query("SELECT * FROM charge_sessions WHERE startTime <= :to AND COALESCE(endTime, lastSampleTime, startTime) >= :from ORDER BY startTime, sessionId")
     suspend fun sessionsBetween(from: Long, to: Long): List<ChargeSession>
+
+    /** ALL exports omit only oldest overflow awaiting the writer's next trim, without deleting it. */
+    @Query("SELECT * FROM (SELECT * FROM charge_sessions WHERE startTime <= :to AND COALESCE(endTime, lastSampleTime, startTime) >= :from ORDER BY startTime DESC, sessionId DESC LIMIT :limit) ORDER BY startTime ASC, sessionId ASC")
+    suspend fun latestSessionsBetween(from: Long, to: Long, limit: Int): List<ChargeSession>
+
+    /** Closed sessions of every type whose endpoint is in the inclusive analysis window. */
+    @Query("SELECT * FROM charge_sessions WHERE endTime BETWEEN :from AND :to ORDER BY endTime, sessionId")
+    suspend fun closedSessionsBetween(from: Long, to: Long): List<ChargeSession>
 
     /** Closed local discharge sessions whose endpoints fall in the ETA seed's seven-day window. */
     @Query("SELECT * FROM charge_sessions WHERE type = 'DISCHARGE' AND endTime BETWEEN :from AND :to AND substr(source, 1, 7) != 'import:'")
@@ -110,7 +118,7 @@ interface SessionDao {
     fun session(id: String): Flow<ChargeSession?>
 
     /** The newest [limit] sessions that stored a capacity estimate, newest first (the Health trend). */
-    @Query("SELECT sessionId, type, startTime, endTime, lastSampleTime, startLevel, endLevel, capacityEstimateMah, capacityConfidence, capacityBasis FROM charge_sessions WHERE capacityEstimateMah IS NOT NULL ORDER BY startTime DESC, sessionId LIMIT :limit")
+    @Query("SELECT sessionId, type, startTime, endTime, lastSampleTime, startLevel, endLevel, capacityEstimateMah, capacityConfidence, capacityBasis, source FROM charge_sessions WHERE capacityEstimateMah IS NOT NULL ORDER BY startTime DESC, sessionId LIMIT :limit")
     fun capacityEstimates(limit: Int): Flow<List<CapacityEstimateRow>>
 
     @Query("DELETE FROM battery_samples WHERE sessionId = :id")
@@ -187,6 +195,9 @@ interface DailySummaryDao {
     @Query("SELECT * FROM daily_summaries WHERE epochDay BETWEEN :fromDay AND :toDay ORDER BY epochDay")
     fun between(fromDay: Long, toDay: Long): Flow<List<DailySummary>>
 
+    @Query("SELECT * FROM daily_summaries WHERE epochDay BETWEEN :fromDay AND :toDay ORDER BY epochDay")
+    suspend fun range(fromDay: Long, toDay: Long): List<DailySummary>
+
     @Query("SELECT COUNT(*) FROM daily_summaries")
     suspend fun count(): Int
 
@@ -206,17 +217,48 @@ interface AppUsageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSnapshotUids(rows: List<AppSnapshotUid>)
 
-    /** Stores a snapshot and its per-uid rows, then prunes to the open session's baseline plus the last [SNAPSHOTS_KEPT]. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSnapshotWakers(rows: List<SnapshotDeviceWaker>)
+
+    @Query("SELECT * FROM snapshot_device_wakers WHERE snapshotId = :snapshotId ORDER BY totalMs DESC, kind, name")
+    suspend fun snapshotWakers(snapshotId: Long): List<SnapshotDeviceWaker>
+
+    @Query("SELECT * FROM session_device_wakers WHERE sessionId IN (:sessionIds) ORDER BY sessionId, rank, kind, name")
+    suspend fun sessionWakers(sessionIds: List<String>): List<SessionDeviceWaker>
+
+    @Query("SELECT * FROM session_app_usage WHERE sessionId IN (:sessionIds) ORDER BY sessionId, rank")
+    suspend fun usageRowsForSessions(sessionIds: List<String>): List<SessionAppUsage>
+
+    @Query("DELETE FROM session_device_wakers WHERE sessionId = :sessionId")
+    suspend fun deleteSessionWakers(sessionId: String)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertSessionWakerRows(rows: List<SessionDeviceWaker>)
+
+    /** Replaces the entire session set, including when the new set is empty. */
     @Transaction
-    suspend fun insertSnapshot(snapshot: AppSnapshot, rows: List<AppUsageRow>): Long {
+    suspend fun insertSessionWakers(sessionId: String, rows: List<SessionDeviceWaker>) {
+        require(rows.all { it.sessionId == sessionId }) { "Invalid session waker rows" }
+        deleteSessionWakers(sessionId)
+        insertSessionWakerRows(rows)
+    }
+
+    /** Stores the header, per-uid rows and wakers before pruning; the newly inserted snapshot always survives. */
+    @Transaction
+    suspend fun insertSnapshot(
+        snapshot: AppSnapshot,
+        rows: List<AppUsageRow>,
+        wakers: List<DeviceWaker> = emptyList(),
+    ): Long {
         val id = insertSnapshotHeader(snapshot.copy(id = 0))
         insertSnapshotUids(rows.map { it.toSnapshotUid(id) })
+        insertSnapshotWakers(wakers.map { SnapshotDeviceWaker(id, it.kind, it.name, it.count, it.totalMs) })
         pruneSnapshots(SNAPSHOTS_KEPT)
         return id
     }
 
-    /** Keeps the [keepLatest] newest snapshots and every BASELINE of the open (activeKey = 1) session; uids cascade. */
-    @Query("DELETE FROM app_snapshots WHERE id NOT IN (SELECT id FROM app_snapshots ORDER BY capturedAt DESC, id DESC LIMIT :keepLatest) AND id NOT IN (SELECT a.id FROM app_snapshots a JOIN charge_sessions s ON s.sessionId = a.sessionId WHERE s.activeKey = 1 AND a.kind = 'BASELINE')")
+    /** Keeps the [keepLatest] last inserted snapshots plus open-session BASELINEs; uid and waker rows cascade. */
+    @Query("DELETE FROM app_snapshots WHERE id NOT IN (SELECT id FROM app_snapshots ORDER BY id DESC LIMIT :keepLatest) AND id NOT IN (SELECT a.id FROM app_snapshots a JOIN charge_sessions s ON s.sessionId = a.sessionId WHERE s.activeKey = 1 AND a.kind = 'BASELINE')")
     suspend fun pruneSnapshots(keepLatest: Int = SNAPSHOTS_KEPT): Int
 
     @Query("DELETE FROM app_snapshots WHERE sessionId IS NOT NULL AND sessionId NOT IN (SELECT sessionId FROM charge_sessions)")
@@ -236,9 +278,6 @@ interface AppUsageDao {
 
     @Query("SELECT * FROM session_app_usage WHERE sessionId = :sessionId ORDER BY rank")
     fun sessionUsage(sessionId: String): Flow<List<SessionAppUsage>>
-
-    @Query("SELECT * FROM session_app_usage WHERE sessionId = :sessionId ORDER BY rank")
-    suspend fun sessionUsageRows(sessionId: String): List<SessionAppUsage>
 
     /** Same session predicate as [SessionDao.sessionsBetween], for export. */
     @Query("SELECT u.* FROM session_app_usage u JOIN charge_sessions s ON s.sessionId = u.sessionId WHERE s.startTime <= :to AND COALESCE(s.endTime, s.lastSampleTime, s.startTime) >= :from ORDER BY s.startTime, u.sessionId, u.rank")
@@ -261,7 +300,7 @@ interface AppUsageDao {
     suspend fun setAppUsageStatus(sessionId: String, status: AppUsageStatus, basis: AppUsageBasis?): Int
 
     /**
-     * Replaces the session's breakdown with [rows] in the given order (rank = index: top 30, then "others") and
+     * Replaces the session's breakdown with [rows] in the given order (rank = index: top apps, waker candidates, then "others") and
      * marks the session READY with [basis], atomically. The session row must exist (FK).
      */
     @Transaction
@@ -273,4 +312,47 @@ interface AppUsageDao {
     companion object {
         const val SNAPSHOTS_KEPT = 3
     }
+}
+
+@Dao
+interface InsightDao {
+    @Query("SELECT * FROM insight_findings ORDER BY score DESC, key")
+    fun findings(): Flow<List<InsightFindingEntity>>
+
+    @Query("SELECT * FROM insight_findings ORDER BY score DESC, key")
+    suspend fun findingsOnce(): List<InsightFindingEntity>
+
+    @Upsert
+    suspend fun upsertFindings(list: List<InsightFindingEntity>)
+
+    @Query("UPDATE insight_findings SET status = :status WHERE `key` = :key")
+    suspend fun setStatus(key: String, status: InsightFindingStatus)
+
+    @Query("DELETE FROM insight_findings")
+    suspend fun clearFindings()
+
+    @Query("DELETE FROM insight_findings WHERE lastSeenAt < :ms")
+    suspend fun purgeFindingsSeenBefore(ms: Long)
+
+    @Query("SELECT * FROM insight_actions ORDER BY createdAt DESC, id DESC")
+    fun actions(): Flow<List<InsightActionEntity>>
+
+    @Query("SELECT * FROM insight_actions ORDER BY createdAt DESC, id DESC")
+    suspend fun actionsOnce(): List<InsightActionEntity>
+
+    @Query("SELECT * FROM insight_actions WHERE status IN (:statuses) ORDER BY createdAt DESC, id DESC")
+    suspend fun actionsWithStatus(statuses: List<InsightActionStatus>): List<InsightActionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertAction(entity: InsightActionEntity): Long
+
+    /**
+     * Purge expired terminal actions and uncertain force-stops, which have no Undo/readback authority.
+     * Preserve reversible Undo/reconciliation authority and unrecognized future statuses.
+     */
+    @Query("DELETE FROM insight_actions WHERE (status IN ('REVERTED', 'FAILED', 'ONE_SHOT') OR (type = 'FORCE_STOP' AND status = 'UNKNOWN')) AND COALESCE(revertedAt, appliedAt, createdAt) < :ms")
+    suspend fun purgeTerminalActionsBefore(ms: Long)
+
+    @Update
+    suspend fun updateAction(entity: InsightActionEntity)
 }

@@ -76,7 +76,7 @@
     <string name="sessiondetails_apps_title">Uygulamalar</string>
     <string name="sessiondetails_apps_basis_delta">Fişten çekildiği andan takıldığı ana kadar</string>
     <string name="sessiondetails_apps_basis_reset">Android bu oturum sırasında istatistiklerini sıfırladığından beri</string>
-    <string name="sessiondetails_apps_basis_absolute">Son tam şarjdan beri (fişten çekilirken okuma yok)</string>
+    <string name="sessiondetails_apps_basis_absolute">Son tam şarjdan beri (fişten çekilirken karşılaştırılabilir okuma yok)</string>
     <string name="sessiondetails_apps_so_far">Şu ana kadar · %1$s güncellendi</string>
     <string name="sessiondetails_apps_others">Diğer uygulamalar</string>
     <string name="sessiondetails_apps_show_all">Tümünü göster</string>

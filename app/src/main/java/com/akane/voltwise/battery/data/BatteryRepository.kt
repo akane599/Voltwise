@@ -27,6 +27,12 @@ import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
+/** Persisted Stop identity, also used by the application-owned insights refresh listener. */
+internal const val MONITORING_STOPPED_CLOSE_REASON = "Monitoring stopped"
+
+/** Local history reference frozen at monitoring start, before the generation's first write. */
+internal suspend fun BatteryDao.retentionReferenceWallMs(): Long? = lastLocalSample()?.timestamp
+
 /** Whether the writer's current session can be reset by a user action. */
 internal fun resetApplies(open: ChargeSession?): Boolean = open?.type == SessionType.DISCHARGE
 
@@ -109,6 +115,7 @@ class BatteryRepository(
     private val calibration: CalibrationStore,
     private val retention: HistoryRetention,
     samplerPreferences: KeyValueStore,
+    private val readRetentionReference: suspend () -> Long? = { db.batteryDao().retentionReferenceWallMs() },
 ) {
     private val batteryDao = db.batteryDao()
     val sessionDao = db.sessionDao()
@@ -128,6 +135,7 @@ class BatteryRepository(
     private var chargeEta = ChargeEta()
     private var savedTapers: Map<Int, Long>? = null // Loaded at the first start, on the writer rather than the caller's thread.
     private var generation: String? = null
+    private var retentionReferenceWallMs: Long? = null
     private var session: ChargeSession? = null
     private var sessionExtremes = SessionExtremes()
     private var needsSessionRecovery = false
@@ -146,6 +154,10 @@ class BatteryRepository(
 
     /** Every saved sample (with its row id), emitted after its transaction commits. */
     val persisted: SharedFlow<BatterySample> = _persisted.asSharedFlow()
+    private val _closedSessions = MutableSharedFlow<ChargeSession>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** All newly closed session rows, emitted only after their writes commit, including same-power gaps. */
+    val closedSessions: SharedFlow<ChargeSession> = _closedSessions.asSharedFlow()
     private val _powerTransitions = MutableSharedFlow<PowerTransition>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /**
@@ -212,7 +224,7 @@ class BatteryRepository(
                         generation = null
                         engine.stop()
                         _observation.value = engine.summary
-                        finishSession("Monitoring stopped")
+                        finishSession(MONITORING_STOPPED_CLOSE_REASON)
                     }
                     Event.Reset -> if (resetApplies(session)) {
                         resetObservationState()
@@ -316,6 +328,9 @@ class BatteryRepository(
         if (savedTapers == null) savedTapers = samplerState.loadTapers().also { chargeEta = ChargeEta(it) }
         resetObservationState()
         needsSessionRecovery = true
+        // Reset even if the reference read fails; freeze it before this generation's first write.
+        retentionReferenceWallMs = null
+        retentionReferenceWallMs = readRetentionReference()
         recoverInterruptedSession()
         backfillDailySummaries()
         seedDischargeEta()
@@ -325,6 +340,8 @@ class BatteryRepository(
         try {
             db.withTransaction {
                 batteryDao.clearAll(); sessionDao.clearAll(); dailySummaryDao.clearAll(); db.appUsageDao().clearSnapshots()
+                // Actions are Undo authority for real system changes, not disposable history.
+                db.insightDao().clearFindings()
             }
             // Calibration and learned charge tapers describe the device, not history: kept.
             session = null
@@ -371,11 +388,9 @@ class BatteryRepository(
             // On the in-memory row, since every save rewrites it: PENDING for discharge, NOT_APPLICABLE otherwise.
             SessionReport.open(point, raw).let { it.copy(appUsageStatus = SessionSnapshotCollector.initialStatus(it.type)) }
         } else open
-        val sessionBefore = sessionEngine.summary
         val sessionSummary = sessionEngine.accept(point)
         val calibratedUa = BatteryReading.calibratedUa(point.currentUa, calibration.state.value.effective)
-        sessionExtremes = sessionExtremes.plus(BatteryReading.powerMw(calibratedUa, point.voltageMv), raw.temperatureDeciC,
-            sessionSummary.cpuSuspendMs - sessionBefore.cpuSuspendMs, screenOffBefore = sessionBefore.latest?.interactive == false)
+        sessionExtremes = sessionExtremes.plus(BatteryReading.powerMw(calibratedUa, point.voltageMv), raw.temperatureDeciC)
         calibration.accept(point, raw.plugged) // RAW current: detection must never see its own output.
 
         // Both estimators see every observation in order; at most one has an estimate.
@@ -426,11 +441,14 @@ class BatteryRepository(
             _persisted.tryEmit(sample.copy(id = rowId))
             samplesSinceCleanup++
         }
-        if (ended != null) emitTransition(ended, point, updated)
+        if (ended != null) {
+            _closedSessions.tryEmit(ended)
+            emitTransition(ended, point, updated)
+        }
         if (lastCleanupElapsed == Long.MIN_VALUE || samplesSinceCleanup >= HistoryLimits.CLEANUP_SAMPLE_INTERVAL || point.elapsedMs - lastCleanupElapsed >= 86_400_000) {
             lastCleanupElapsed = point.elapsedMs
             samplesSinceCleanup = 0
-            try { cleanup(sample.timestamp); failure(FailureSource.RETENTION) }
+            try { cleanup(point); failure(FailureSource.RETENTION) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 diagnostics.record(DiagnosticCode.HISTORY_WRITE_FAILED)
@@ -467,8 +485,10 @@ class BatteryRepository(
         if (current != null) {
             try {
                 // Update-or-insert, never REPLACE (see process).
-                sessionDao.upsert(current.copy(endTime = current.lastSampleTime ?: current.startTime,
-                    activeKey = null, closeReason = reason))
+                val closed = current.copy(endTime = current.lastSampleTime ?: current.startTime,
+                    activeKey = null, closeReason = reason)
+                sessionDao.upsert(closed)
+                _closedSessions.tryEmit(closed)
             } catch (e: Exception) {
                 needsSessionRecovery = true
                 throw e
@@ -521,10 +541,10 @@ class BatteryRepository(
         }
     }
 
-    private suspend fun cleanup(now: Long) {
+    private suspend fun cleanup(point: Observation) {
         // Waits for the settings migration (v2 "auto-cleanup off" becomes Forever); throws if it failed.
         val purgeFailure = try {
-            retention.cutoff(now)?.let { cutoff -> HistoryPolicy.purgeExpired(db, cutoff) }
+            retention.cutoff(point.wallMs, point.elapsedMs, retentionReferenceWallMs)?.let { cutoff -> HistoryPolicy.purgeExpired(db, cutoff) }
             null
         } catch (e: CancellationException) {
             throw e

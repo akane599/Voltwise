@@ -9,16 +9,21 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Serialize imports and clearing, so an import cannot repopulate history after a completed clear. */
 class HistoryMaintenance {
     val mutations = Mutex()
     private val clearing = AtomicBoolean()
     val isClearing: Boolean get() = clearing.get()
+    private val clearGeneration = AtomicLong()
+    /** Invalidates analysis that read history before a clear, even after that clear finishes. */
+    val generation: Long get() = clearGeneration.get()
 
     /** A confirmed clear finishes even if the settings screen is closed. Block new starts first. */
     suspend fun clear(stopMonitoring: suspend () -> Unit, delete: suspend () -> Unit) {
         check(clearing.compareAndSet(false, true)) { "History is already being cleared" }
+        clearGeneration.incrementAndGet()
         try {
             withContext(NonCancellable) {
                 stopMonitoring()

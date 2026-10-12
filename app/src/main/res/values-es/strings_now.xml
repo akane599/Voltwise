@@ -89,5 +89,23 @@
     <string name="now_apps_empty">Todavía no hay datos por app.</string>
     <string name="now_apps_open">Abrir Apps</string>
 
+    <string name="now_insights_title">Análisis</string>
+    <string name="now_insights_never">Aún sin analizar. Abre Análisis para buscar apps y ajustes que gastan más de lo habitual.</string>
+    <string name="now_insights_all_good">Todo bien: nada gasta más de lo habitual.</string>
+    <string name="now_insights_learning">Aún aprendiendo: todavía no hay suficientes sesiones con datos de apps para comparar.</string>
+    <string name="now_insights_headline_app">%1$s · %2$s</string>
+    <string name="now_insights_headline_description">%1$s. %2$s</string>
+    <string name="now_insights_open_finding">Abrir detalles</string>
+    <plurals name="now_insights_findings">
+        <item quantity="one">%d hallazgo</item>
+        <item quantity="many">%d hallazgos</item>
+        <item quantity="other">%d hallazgos</item>
+    </plurals>
+    <plurals name="now_insights_changes">
+        <item quantity="one">Sin problemas · %d cambio para revisar</item>
+        <item quantity="many">Sin problemas · %d cambios para revisar</item>
+        <item quantity="other">Sin problemas · %d cambios para revisar</item>
+    </plurals>
+
     <string name="now_eta_estimating_full">Calculando el tiempo hasta llenar</string>
 </resources>

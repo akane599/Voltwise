@@ -233,7 +233,7 @@ private fun basisLabel(basis: AppUsageBasis): Int = when (basis) {
 
 /** A navigation hint for a tappable panel, sized like a touch target so it lines up with the gutter. */
 @Composable
-private fun Chevron() {
+internal fun Chevron() {
     Box(Modifier.minimumInteractiveComponentSize(), contentAlignment = Alignment.Center) {
         Icon(
             Icons.AutoMirrored.Rounded.KeyboardArrowRight,

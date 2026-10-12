@@ -431,6 +431,7 @@ private fun StatusIssueKind.text(): Int = when (this) {
     StatusIssueKind.OBSERVATION_GAP -> R.string.status_issue_gap
     StatusIssueKind.CHARGE_UNAVAILABLE -> R.string.status_issue_charge_counter
     StatusIssueKind.ADVANCED_READ_FAILED -> R.string.status_issue_advanced_failed
+    StatusIssueKind.DOZE_WHITELIST_UNREADABLE -> R.string.status_issue_doze_whitelist_unreadable
     StatusIssueKind.ADVANCED_FORMAT_INVALID -> R.string.status_issue_format_invalid
     StatusIssueKind.ADVANCED_INTERRUPTED -> R.string.status_issue_interrupted
     StatusIssueKind.ALERT_FAILED -> R.string.status_issue_alert_failed

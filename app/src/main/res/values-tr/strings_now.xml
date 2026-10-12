@@ -89,5 +89,21 @@
     <string name="now_apps_empty">Henüz uygulama başına veri yok.</string>
     <string name="now_apps_open">Uygulamaları aç</string>
 
+    <string name="now_insights_title">Analiz</string>
+    <string name="now_insights_never">Henüz analiz edilmedi. Normalden fazla tüketen uygulama ve ayarları bulmak için Analiz\'i aç.</string>
+    <string name="now_insights_all_good">Her şey yolunda: normalden fazla tüketen bir şey yok.</string>
+    <string name="now_insights_learning">Hâlâ öğreniyor: karşılaştırılacak uygulama verisi olan yeterli oturum henüz yok.</string>
+    <string name="now_insights_headline_app">%1$s · %2$s</string>
+    <string name="now_insights_headline_description">%1$s. %2$s</string>
+    <string name="now_insights_open_finding">Ayrıntıları aç</string>
+    <plurals name="now_insights_findings">
+        <item quantity="one">%d bulgu</item>
+        <item quantity="other">%d bulgu</item>
+    </plurals>
+    <plurals name="now_insights_changes">
+        <item quantity="one">Sorun yok · incelenecek %d değişiklik</item>
+        <item quantity="other">Sorun yok · incelenecek %d değişiklik</item>
+    </plurals>
+
     <string name="now_eta_estimating_full">Dolma süresi hesaplanıyor</string>
 </resources>

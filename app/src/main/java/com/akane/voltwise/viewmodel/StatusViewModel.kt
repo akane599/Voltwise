@@ -68,6 +68,7 @@ enum class StatusIssueKind {
     OBSERVATION_GAP,
     CHARGE_UNAVAILABLE,
     ADVANCED_READ_FAILED,
+    DOZE_WHITELIST_UNREADABLE,
     ADVANCED_FORMAT_INVALID,
     ADVANCED_INTERRUPTED,
     ALERT_FAILED,
@@ -222,6 +223,8 @@ class StatusViewModel(
             DiagnosticCode.OBSERVATION_GAP -> StatusIssueKind.OBSERVATION_GAP
             DiagnosticCode.CHARGE_UNAVAILABLE -> StatusIssueKind.CHARGE_UNAVAILABLE
             DiagnosticCode.ADVANCED_READ_FAILED -> StatusIssueKind.ADVANCED_READ_FAILED
+            DiagnosticCode.DOZE_WHITELIST_READ_FAILED, DiagnosticCode.DOZE_WHITELIST_FORMAT_INVALID ->
+                StatusIssueKind.DOZE_WHITELIST_UNREADABLE
             DiagnosticCode.ADVANCED_FORMAT_INVALID -> StatusIssueKind.ADVANCED_FORMAT_INVALID
             DiagnosticCode.ADVANCED_INTERRUPTED -> StatusIssueKind.ADVANCED_INTERRUPTED
             DiagnosticCode.ALERT_FAILED -> StatusIssueKind.ALERT_FAILED
@@ -229,7 +232,8 @@ class StatusViewModel(
             DiagnosticCode.LOG_READ_FAILED -> StatusIssueKind.LOG_READ_FAILED
             DiagnosticCode.MONITORING_STARTED, DiagnosticCode.MONITORING_STOPPED,
             DiagnosticCode.ACCESS_NONE, DiagnosticCode.ACCESS_SHIZUKU, DiagnosticCode.ACCESS_ROOT, DiagnosticCode.ACCESS_ADB,
-            DiagnosticCode.ADVANCED_RECOVERED, DiagnosticCode.SYSTEM_STATS_RESET, DiagnosticCode.APP_SCOPE_FAILED -> null
+            DiagnosticCode.ADVANCED_RECOVERED, DiagnosticCode.SYSTEM_STATS_RESET, DiagnosticCode.APP_SCOPE_FAILED,
+            DiagnosticCode.ADVANCED_INCOMPLETE -> null
         }
     }
 }

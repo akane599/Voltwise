@@ -27,21 +27,15 @@ enum class ChargerType(val plugged: Int) {
 
 /**
  * What an open session accumulates from every observed capture, saved or not: peak |power| in mW
- * (from calibrated current), peak temperature, and CPU suspend in intervals that began screen-off.
+ * (from calibrated current) and peak temperature. Interval totals come from the session engine.
  */
 data class SessionExtremes(
     val peakPowerMw: Long? = null,
     val peakTemperatureDeciC: Int? = null,
-    val screenOffSuspendMs: Long = 0,
 ) {
-    /**
-     * @param suspendMs CPU suspend the engine counted for the interval ending at this capture
-     * @param screenOffBefore the interval began with the screen off
-     */
-    fun plus(powerMw: Double?, temperatureDeciC: Int?, suspendMs: Long, screenOffBefore: Boolean) = SessionExtremes(
+    fun plus(powerMw: Double?, temperatureDeciC: Int?) = SessionExtremes(
         peakPowerMw = listOfNotNull(peakPowerMw, powerMw?.takeIf { abs(it) <= 1_000_000 }?.let { abs(it).roundToLong() }).maxOrNull(),
         peakTemperatureDeciC = listOfNotNull(peakTemperatureDeciC, temperatureDeciC).maxOrNull(),
-        screenOffSuspendMs = screenOffSuspendMs + if (screenOffBefore) suspendMs.coerceAtLeast(0) else 0,
     )
 }
 
@@ -79,14 +73,10 @@ object SessionReport {
         engine: ObservationEngine,
         extremes: SessionExtremes,
     ): ChargeSession {
-        val before = engine.summary
         val summary = engine.accept(point)
-        val closingExtremes = if (before.latest?.interactive == false) extremes.copy(
-            screenOffSuspendMs = extremes.screenOffSuspendMs + (summary.cpuSuspendMs - before.cpuSuspendMs),
-        ) else extremes
         // Keep the observed boundary duration and its screen-off suspend; cross-power charge is excluded.
         // The capacity estimate still ends at the last same-state sample.
-        return report(current, sample, summary, closingExtremes).copy(
+        return report(current, sample, summary, extremes).copy(
             capacityEstimateMah = current.capacityEstimateMah,
             capacityConfidence = current.capacityConfidence,
             capacityBasis = current.capacityBasis,
@@ -115,10 +105,12 @@ object SessionReport {
             screenOnUah = summary.screenOn.chargeChangeUah.takeIf { summary.screenOn.chargeCoveredMs > 0 },
             screenOffUah = summary.screenOff.chargeChangeUah.takeIf { summary.screenOff.chargeCoveredMs > 0 },
             cpuSuspendMs = summary.cpuSuspendMs,
+            dozeMs = summary.dozeMs.takeIf { summary.observedMs > 0 },
+            screenOffDozeMs = summary.screenOffDozeMs.takeIf { summary.observedMs > 0 },
             energyNwh = bucket.estimatedEnergyMwh?.let { (it * 1_000_000).roundToLong() },
             peakPowerMw = extremes.peakPowerMw,
             peakTemperatureDeciC = extremes.peakTemperatureDeciC,
-            screenOffSuspendMs = extremes.screenOffSuspendMs.takeIf { summary.cpuObservedMs > 0 },
+            screenOffSuspendMs = summary.screenOffSuspendMs.takeIf { summary.cpuObservedMs > 0 },
             capacityEstimateMah = capacity?.fullMah,
             capacityConfidence = capacity?.confidence?.name,
             capacityBasis = capacity?.basis?.name,

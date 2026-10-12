@@ -71,6 +71,7 @@ class CalibrationStore(
             val next = Detection(candidate(decision), decision.agreeingWindows)
             val current = detected
             if (next.calibration == current?.calibration) {
+                if (decision.basis == CalibrationBasis.POSITIVE_WHILE_DISCHARGING && current.windows > 0) return
                 if (next.windows == current.windows) return
                 detected = next
             } else {

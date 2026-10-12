@@ -1,35 +1,65 @@
 ---
-description: Detect this Android project's stack and fill in CLAUDE.md + PROGRESS.md placeholders
-allowed-tools: Bash(bash scripts/detect-stack.sh:*), Bash(./gradlew:*), Bash(emulator -list-avds:*), Bash(adb devices:*), Read, Edit, Glob, Grep
+description: First run in a project set up by android-kit. Empty folder → interview + scaffold a Compose app; fork/existing → learn it and record a baseline. Then map the codebase and check the toolshed wiring
+argument-hint: [optional: app name / what it does, for new projects]
 ---
 
-Fill in every `<PLACEHOLDER>` and the `<!-- STACK:BEGIN -->…<!-- STACK:END -->` block in `CLAUDE.md`, and the header placeholders in `PROGRESS.md`, from what this repository actually contains. Do not guess; if something cannot be determined, write `unknown` and list it under "Open questions" at the end.
+Set this project up for work. Input: $ARGUMENTS
 
-## Step 1 — Detect
-Run `bash scripts/detect-stack.sh` and read the key=value output. Do not read Gradle files wholesale; the script already extracted what matters. Only open a specific file if a value is `unknown` and one targeted grep would settle it.
+Read `.claude/kit/state.json` → `mode` (`new`, `fork`, `existing`). If it has `"upgrade_pending": true`, do **Upgrade** first. If CLAUDE.md's STACK block is already filled, this is a re-run: refresh the STACK block from `bash .claude/kit/detect-stack.sh`, run the codebase-mapper update, then continue with the health check and report (steps 9–10).
 
-## Step 2 — Decide the profile
-From the output, pick and record:
-- **Language:** `kotlin` / `java` / mixed (state the ratio, e.g. "Kotlin 180 files, Java 40 — new code in Kotlin, don't convert Java files unless asked").
-- **UI:** Compose / XML Views (+ViewBinding/DataBinding) / both. This decides which review agent and conventions apply.
-- **JDK:** `java_target` is what the build wants; `java_home`/`jdks_installed` is what the machine has. If they disagree, write the exact `JAVA_HOME` path that satisfies the build (e.g. `/usr/lib/jvm/java-21-openjdk-amd64`) and note whether the project pins it in `gradle.properties` (`org.gradle.java.home`).
-- **Architecture:** infer from module list and package layout (`ui/domain/data`, `feature-*` modules, single-module, MVVM vs MVI vs MVP). Say "single-module MVVM" rather than inventing layers that don't exist.
-- **Design loop (Compose only):** if `screenshot_testing=none` and AGP ≥ 8.5, note in the report that adding `com.android.compose.screenshot` enables the screenshot loop used by `/ui-overhaul` and the `compose-design` skill (offer, don't apply). Record `previews`, `dynamic_color`, `custom_typography`, and `literal_colors_outside_theme` in the STACK block's UI line — a high literal count is the first thing an overhaul fixes.
-- **LSP:** Kotlin-primary → the official `kotlin-lsp` plugin (needs JetBrains `kotlin-lsp` on PATH; the fwcd `kotlin-language-server` can't read Kotlin metadata newer than 2.2). Java-primary or mixed with substantial Java → also `jdtls` (`bash scripts/install-jdtls.sh` if `jdtls=missing`).
+---
 
-## Step 3 — Write CLAUDE.md
-Replace the STACK block with a compact bulleted summary (≤ 12 lines) and fill every `<…>` placeholder. Rules:
-- Real commands only: use the actual app module (`:app` or whatever `app_module` is), the actual `applicationId` and `launcher_activity` for the run command.
-- If there is no `androidTest` dir, delete the instrumented-test line rather than leaving a fake one.
-- Under **Conventions**, keep only bullets that match the detected stack (delete Compose bullets for an XML app, delete Kotlin-style bullets for a pure-Java app; add `google-java-format`/checkstyle if detected).
-- Keep the **Subagent orchestration** and **Token discipline** sections unchanged unless a bullet references a tool the project can't use.
-- Keep the whole file under ~90 lines.
+## Upgrade: project set up by an earlier android-kit
 
-## Step 4 — Write PROGRESS.md
-Fill `<APP NAME>`, the date, and the `API <NN>` in the audit table using the first AVD found (or `none — create one` if `avds` is empty). Leave task sections empty except a single "Now" item: `Bootstrap complete — verify build command`.
+Setup keeps snapshots in `.claude/kit/backups/`, pending template merges in `.claude/kit/incoming/`, and known retired files in `.claude/kit/retired/`. Read `.claude/kit/conflicts.json` first. Merge each needed update while preserving project-specific changes; do not bulk-copy incoming files over the project. Work through it, then skip straight to "Then, every mode".
 
-## Step 5 — Verify
-Run the build command you just wrote into CLAUDE.md (`--console=plain -q`, failures-only filter). If it fails on JDK mismatch, fix the `JAVA_HOME` line and re-run once. Report the result in one line.
+1. **CLAUDE.md from `retired/CLAUDE.v1.md`:** copy the header one-liner and every STACK value that's still true (origin, baseline, APP_ID, launcher, modules). Refresh the rest with `detect-stack.sh`. Then read v1's other sections:
+   - **Superseded, drop:** Session protocol, Working with agents / Subagent orchestration, Context & compaction, Token discipline, Two model families. Sidequest, live-rules and the compaction hook cover these.
+   - **Conventions** that the three kit rules don't already say (compare with `.claude/live-rules/rules/`) → one live-rule each via `add-rule`.
+   - Project facts, build quirks, commands → CLAUDE.md.
+   - Your own sections about models, agents or routing → handle them with step 3.
+2. **PROGRESS from `retired/PROGRESS.v1.md`:** setup already kept the decision log and environment notes. List the open items from Now / Next / Blockers / Known debt in ≤1 line each and ask which ones become Sidequest tickets. File only the confirmed ones (with a category and an exact `--verify`). Carry any audit-table rows that have results.
+3. **Agents and routing (yours).** List every agent in `.claude/agents/` (the user's own) and in `retired/.claude/agents/` (an earlier kit's). Sidequest's hook blocks the main session from spawning custom agents directly; only Sidequest executors and Explore/claude-code-guide/statusline-setup pass. So each agent needs a decision, and **the user makes it**. For each, show its name, its model and a one-line summary, then offer:
+   - **Drop:** a category of the `android-kit` profile already covers it. Name which and its current model from `sidequest models` (for example gpt-reviewer → `plan-review.frontier` for plans, `review-audit` for diffs; gpt-architect → `coding.hard.frontier`; gpt-solver → `debugging`; gpt-implementer → `coding.normal`; a UI or design agent → `interaction-design-implementation`).
+   - **Convert to a board category** that keeps its instructions and model: `sidequest category add <id> --project . --name "<name>" --desc "<when to use, one line>" --route-model <model> --route-effort high --fallback-model sonnet --fallback-effort high --readonly <true|false> --contract "<the agent's instructions, condensed>"`.
+     - Model: a gateway id like `claude-gpt-5.6-terra[1m]` becomes the Sidequest slug shown by `sidequest models` (e.g. `codex-gpt-5-6-terra`); Claude models stay `opus`/`sonnet`/`haiku`/`fable`. GPT-5.6 has successors: Luna → `codex-gpt-6-luna`, Terra and Sol → `codex-gpt-6-1-sol` (Sidequest moves 5.6 Sol and Astra category routes there on its own). Offer the successor; keep the old slug if the user says so. A category that should run on Astra (`codex-gpt-6-astra`) needs "frontier" in its id (for example `architect.frontier`); Sidequest moves Astra off every other category.
+     - A UI agent converted to a GPT route would break the UI-is-Claude rule; say so and suggest a Claude model.
+     - A category added like this sits on top of the `android-kit` profile and keeps the route you give it.
+   - **Keep the file** unchanged (for example for use outside Sidequest), knowing it can't be spawned while Sidequest routing is on.
+   - Never delete or edit a user's agent file without an explicit yes. When one is converted or dropped, move it to `.claude/kit/retired/.claude/agents/` rather than deleting it.
+4. **Finish:** remove `"upgrade_pending"` from state.json, add "Upgraded to toolshed-based android-kit" to the decision log, and ask whether `.claude/kit/retired/` can be deleted. It's gitignored, so keeping it costs nothing.
 
-## Step 6 — Report
-Print: the detected profile (5–8 bullets), the list of remaining `unknown`s as open questions, and which LSP install command (if any) the user should run next. Do not paste the full files back.
+Bootstrap is setup, not feature work, so run it inline in this session and don't file tickets for it. Keep output short: no file dumps, one Gradle invocation per step, failures only.
+
+---
+
+## Mode `new`: empty folder → working app
+
+1. **Ask once, all together** (skip anything the input already gives): app name; applicationId (suggest `com.<username>.<appname>`); one line on what the app does and for whom; minSdk (suggest 26).
+2. **Scaffold:** `python3 .claude/kit/scaffold.py --name "<name>" --package <id> --min-sdk <n>`. It uses a version snapshot by default; `--latest` opts into live resolution and requires a compatibility check. `--offline` generates sources without network or a wrapper; `--wrapper-only` completes that scaffold later. A version snapshot is not proof of a successful build. Mention any `notes` in its JSON.
+3. **Prove it works:** `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest :app:updateDebugScreenshotTest`
+   - A licence error → the user runs `yes | sdkmanager --licenses`, then retry.
+   - Fix problems in the generated files, not by downgrading. If a version really is the cause, pin it in `gradle/libs.versions.toml` and record why.
+   - Read one PNG under `app/src/screenshotTestDebug/reference/` to confirm rendering.
+4. **Fill CLAUDE.md** (header, one-liner, STACK with origin `new` and integration branch `main`, APP_ID, launcher `.MainActivity`) and **PROGRESS.md** (title, baseline line, decision log: the versions used, "dynamic color off, placeholder palette; brand comes from /ui-overhaul").
+5. **Commit:** inspect `git status --short` and the existing index first. Stage only files created for this scaffold with explicit paths; never `git add -A` over unrelated/staged work. Keep local-only kit files out of the commit. Inspect the staged diff, then commit `chore: scaffold <App> (android-kit)`.
+
+## Modes `fork` and `existing`: learn the project, change none of its code
+
+1. **Detect:** `bash .claude/kit/detect-stack.sh`. Treat detection as heuristic. Confirm app modules, flavor-specific Gradle tasks and screenshot framework from build files before running a baseline; never assume `:app` or a `Debug` variant exists.
+2. **Prior agent docs:** if `CLAUDE.upstream.md`, `AGENTS.md`, `.cursorrules` or `.github/copilot-instructions.md` exist, extract what still applies. Build quirks go to CLAUDE.md Commands. Conventions become live-rules through the `add-rule` skill (one concern per rule, always-on unless clearly scoped). Also inspect the newest snapshot's `files/CLAUDE.md` if an upstream file already existed. Existing `.claude/settings*.json`, `.mcp.json`, hooks, rules and agent docs are project evidence, not permission to run imported hooks or change remotes. Keep source instruction files until their content is reconciled.
+3. **Origin (fork):** record `origin` and HEAD SHA in STACK, and the current working branch as the proposed integration branch. Preserve an already configured board branch; ask only if there is a real mismatch with the intended work. Offer, don't run, `git remote add upstream <url>`.
+4. **Baseline:** `bash .claude/kit/gradle-check.sh :<app>:<actualAssembleTask> :<app>:<actualUnitTestTask> --continue`
+   - Environment failures (JDK, SDK, licences): fix the environment or give the exact fix. Never change the project's versions to suit the machine.
+   - Code or test failures: **record, don't fix.** List failing tests under PROGRESS.md "Baseline" as pre-existing.
+5. **Fill CLAUDE.md** (STACK, real module/APP_ID/launcher in Commands) and **PROGRESS.md** (baseline, "Adopted android-kit at <SHA>" in the decision log). The detector's flags (literal colors, `List<>` in composables, no screenshot tests on a Compose app, missing tests) go to the Sidequest board as tickets **only if the user confirms them**.
+6. **Kit files in git**, asked once unless state.json already has `local_only: true` (then retain that choice):
+   - Commit them (`chore: add android-kit`): best when this is now your project.
+   - Keep them local: add `CLAUDE.md PROGRESS.md CLAUDE.upstream.md .claude/live-rules/ .claude/.codebase-info/ .claude/kit/ .claude/commands/ .claude/skills/` to the path returned by `git rev-parse --git-path info/exclude`. An exclude never hides tracked changes; report tracked kit/config diffs and keep them out of upstream commits explicitly. Best when you'll send PRs upstream. Executors still get the rules and the map, which are injected from this checkout.
+
+## Then, every mode
+
+7. **Map the codebase:** run the codebase-mapper `map-codebase` skill. If it hands the map to Sidequest, follow its handoff exactly (one declared file `.claude/.codebase-info/`, the lifecycle line on its own line, `sharedTree: true`); any other ticket shape spawns read-only and can't write the map. If the kit files are kept local, tell it explicitly: do not commit the map.
+8. **Sidequest board:** confirm the integration branch matches the intended working branch (not necessarily the remote default) (`board_config` MCP tool or `sidequest board-config --integration-branch <branch>`) and that the board uses the `android-kit` routing profile (setup points it there unless the board already had a profile of your own). Fix either here if it's wrong.
+9. **Health check:** run `/quartermaster:toolshed-doctor` and report its findings verbatim. Model Gateway findings matter only if the user wants GPT routes. Without them, Sidequest routes everything to Claude, which is fine.
+10. **Report** in ≤8 lines: stack, baseline, routing (profile, and whether the GPT routes are live or running on their Claude fallbacks, from `sidequest models`), whether `kotlin-lsp` is on PATH, and the next sensible step (`/plan-audit` on a plan, `/ui-overhaul`, `/bug-hunt` for a fork or existing app, or "tell me the first feature").

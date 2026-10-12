@@ -67,6 +67,39 @@ class HealthViewModelTest {
         }
     }
 
+    @Test fun summaryPrefersLocalCapacityOverImportedHighConfidence() = runTest {
+        val local = session("local", endTime = T0, capacityMah = 5_000, confidence = "MEDIUM")
+        val imported = List(3) { i -> session("import:old-$i", endTime = T0 - (i + 1) * DAY, capacityMah = 3_000, confidence = "HIGH") }
+        repo.sessions.value = listOf(local) + imported
+        repo.design.value = DesignCapacityReading.Known(5_000_000, fromSettings = true)
+        val state = start()
+
+        assertEquals(5_000, state().summary?.capacityMah)
+        assertEquals(100.0, state().summary!!.healthPercent!!, 1e-9)
+        assertEquals(CapacityConfidence.MEDIUM, state().summary?.confidence)
+    }
+
+    @Test fun nowSummaryPrefersLocalCapacityOverImportedHighConfidence() {
+        val local = session("local", endTime = T0, capacityMah = 5_000, confidence = "MEDIUM")
+        val imported = List(3) { i -> session("import:old-$i", endTime = T0 - (i + 1) * DAY, capacityMah = 3_000, confidence = "HIGH") }
+        val summary = NowMapping.healthSummary(listOf(local) + imported, 5_000_000)!!
+
+        assertEquals(5_000, summary.estimate.fullMah)
+        assertEquals(100.0, summary.healthPercent!!, 1e-9)
+        assertEquals(CapacityConfidence.MEDIUM, summary.estimate.confidence)
+    }
+
+    @Test fun summariesStillUseImportedCapacityWithoutUsableLocalEstimates() = runTest {
+        val imported = List(3) { i -> session("import:old-$i", endTime = T0 - i * DAY, capacityMah = 3_000, confidence = "HIGH") }
+        repo.sessions.value = imported
+        repo.design.value = DesignCapacityReading.Known(5_000_000, fromSettings = true)
+        val state = start()
+
+        assertEquals(3_000, state().summary?.capacityMah)
+        assertEquals(60.0, state().summary!!.healthPercent!!, 1e-9)
+        assertEquals(3_000, NowMapping.healthSummary(imported, 5_000_000)?.estimate?.fullMah)
+    }
+
     @Test fun theSharedDesignCapacityShowsCheckingThenTheBatterysValue() = runTest {
         repo.sessions.value = listOf(session("a", endTime = T0, capacityMah = 4_500, confidence = "HIGH"))
         repo.design.value = DesignCapacityReading.Checking

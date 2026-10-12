@@ -76,6 +76,25 @@ class MonitoringControllerTest {
     }
 
     @Test
+    fun promptStartPersistsWantedAfterExplicitStop() {
+        controller().stop()
+        recordPromptStart(START_FROM_PROMPT_ACTION, store)
+        assertTrue("A successful prompt tap must opt back into update resumes", controller().monitoringWanted)
+        assertTrue(resumesMonitoring(Intent.ACTION_MY_PACKAGE_REPLACED, true, controller().monitoringWanted))
+        assertEquals("Acknowledgement must not start the service a second time", 0, starts)
+    }
+
+    @Test
+    fun unmarkedServiceStartsDoNotUndoExplicitStop() {
+        controller().stop()
+        for (action in listOf(null, "", Intent.ACTION_MY_PACKAGE_REPLACED)) {
+            recordPromptStart(action, store)
+            assertFalse(controller().monitoringWanted)
+        }
+        assertEquals(1, store.writes)
+    }
+
+    @Test
     fun stopRecordsIntentBeforeStoppingService() {
         val controller = MonitoringController(
             isMonitoring = running,

@@ -1,7 +1,17 @@
 package com.akane.voltwise.ui.screens
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.LayoutDirection
 import com.akane.voltwise.battery.apps.AppLabel
+import com.akane.voltwise.battery.insights.model.Direction
+import com.akane.voltwise.battery.insights.model.Evidence
+import com.akane.voltwise.battery.insights.model.FindingType
+import com.akane.voltwise.battery.insights.model.Metric
+import com.akane.voltwise.battery.insights.model.MetricUnit
+import com.akane.voltwise.battery.insights.model.Severity
 import com.akane.voltwise.ui.FIXED_TIME_MS
 import com.akane.voltwise.ui.PhonePreview
 import com.akane.voltwise.ui.ScreenPreviews
@@ -9,6 +19,7 @@ import com.akane.voltwise.ui.ScreenshotTheme
 import com.akane.voltwise.ui.TallPhonePreview
 import com.akane.voltwise.viewmodel.AlarmItem
 import com.akane.voltwise.viewmodel.AppDetailsUiState
+import com.akane.voltwise.viewmodel.AppFinding
 import com.akane.voltwise.viewmodel.AppHistory
 import com.akane.voltwise.viewmodel.AppHistoryState
 import com.akane.voltwise.viewmodel.AppSessionUsage
@@ -99,6 +110,37 @@ private fun sparse() = AppDetailsUiState(
     history = AppHistoryState.Loaded(AppHistory(emptyList())),
 )
 
+/**
+ * The full state with four active findings in Insights' order: three with a lead evidence (ratio, ratio, below
+ * usual) and one without, which shows its type and severity alone.
+ */
+private fun withFindings() = full().copy(
+    findings = listOf(
+        AppFinding(
+            "BACKGROUND_RUNAWAY:com.google.android.youtube",
+            FindingType.BACKGROUND_RUNAWAY,
+            Severity.HIGH,
+            Direction.UP,
+            Evidence(Metric.BG_TIME_SHARE, 0.62, 0.18, MetricUnit.SHARE, 9),
+        ),
+        AppFinding(
+            "WAKEUP_STORM:com.google.android.youtube",
+            FindingType.WAKEUP_STORM,
+            Severity.MEDIUM,
+            Direction.UP,
+            Evidence(Metric.WAKEUP_ALARMS_PER_H, 14.0, 3.5, MetricUnit.COUNT_PER_H, 9),
+        ),
+        AppFinding(
+            "TREND:com.google.android.youtube:POWER_MAH_PER_H",
+            FindingType.TREND,
+            Severity.LOW,
+            Direction.DOWN,
+            Evidence(Metric.POWER_MAH_PER_H, 2.1, 4.8, MetricUnit.MAH_PER_H, 7),
+        ),
+        AppFinding("NEW_HEAVY_APP:com.google.android.youtube", FindingType.NEW_HEAVY_APP, Severity.INFO, null),
+    ),
+)
+
 @Composable
 private fun AppDetailsPreviewContent(state: AppDetailsUiState) {
     AppDetailsContent(state = state, onEvent = {})
@@ -136,10 +178,57 @@ fun AppDetailsLoadingPreview() {
     }
 }
 
-/** The whole page of the full state on a tall phone (the lists, network, hardware and history below the fold). */
+/**
+ * The whole page of the full state on a tall phone (the lists, network, hardware and history below the fold). It has
+ * no active findings, so no Findings panel: the empty state is hidden, not an empty panel.
+ */
 @PreviewTest
 @TallPhonePreview
 @Composable
 fun AppDetailsFullTallPreview() {
     ScreenshotTheme { AppDetailsPreviewContent(full()) }
+}
+
+/** Findings under the hero: type, severity and the lead evidence per row, at 1× and 1.5× font. */
+@PreviewTest
+@TallPhonePreview
+@Preview(name = "LargeFont", widthDp = 400, heightDp = 1000, fontScale = 1.5f)
+@Composable
+fun AppDetailsFindingsPreview() {
+    ScreenshotTheme { AppDetailsPreviewContent(withFindings()) }
+}
+
+/** The Findings panel right to left at 1.5× font: the row mirrors (severity chip on the left) and long text wraps. */
+@PreviewTest
+@Preview(name = "RtlLargeFont", widthDp = 400, heightDp = 1000, fontScale = 1.5f)
+@Composable
+fun AppDetailsFindingsRtlPreview() {
+    ScreenshotTheme {
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { AppDetailsPreviewContent(withFindings()) }
+    }
+}
+
+/**
+ * A fix's measured effect in the Findings panel: "Drain rose 20% since the change", never the pre-fix value read as
+ * "usual" ("1.2× usual"). Drain went from 2.5 to 3.0 mAh/h after the change.
+ */
+@PreviewTest
+@TallPhonePreview
+@Composable
+fun AppDetailsActionEffectPreview() {
+    ScreenshotTheme {
+        AppDetailsPreviewContent(
+            full().copy(
+                findings = listOf(
+                    AppFinding(
+                        "ACTION_EFFECT:com.google.android.youtube:POWER_MAH_PER_H:3",
+                        FindingType.ACTION_EFFECT,
+                        Severity.INFO,
+                        Direction.UP,
+                        Evidence(Metric.POWER_MAH_PER_H, 3.0, 2.5, MetricUnit.MAH_PER_H, 4),
+                    ),
+                ),
+            ),
+        )
+    }
 }

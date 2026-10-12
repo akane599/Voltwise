@@ -151,6 +151,47 @@ class BatteryStatsParserTest {
         assertEquals(8, alarm.wakeups)
         assertNull(alarm.totalTimeMs)
     }
+    @Test fun wakeupReasonsAndKernelWakelocksKeepCheckinTimeBeforeCount() {
+        val raw = """
+            9,0,l,wr,abort_suspend_"quoted",12345,7
+            9,0,l,wr,rtc_alarm,0,0
+            9,0,l,kwl,"PowerManagerService",7654,2
+            9,0,l,kwl,eventpoll,400,3
+        """.trimIndent()
+        val snapshot = BatteryStatsParser.parseCheckin(raw)
+        val reason = snapshot.wakeupReasons.single { it.name == "abort_suspend_\"quoted\"" }
+        assertEquals(12345L, reason.totalTimeMs)
+        assertEquals(7, reason.count)
+        val zero = snapshot.wakeupReasons.single { it.name == "rtc_alarm" }
+        assertEquals(0L, zero.totalTimeMs)
+        assertEquals(0, zero.count)
+        assertEquals(listOf("PowerManagerService", "eventpoll"), snapshot.kernelWakelocks.map { it.name })
+        assertEquals(listOf(7654L, 400L), snapshot.kernelWakelocks.map { it.totalTimeMs })
+        assertEquals(listOf(2, 3), snapshot.kernelWakelocks.map { it.count })
+        assertTrue(snapshot.reportedTags.containsAll(listOf("wr", "kwl")))
+        assertEquals(0, snapshot.rejectedRecords)
+        assertEquals(
+            snapshot.copy(capturedAt = 0),
+            BatteryStatsParser.parseCheckin(raw.lineSequence().constrainOnce()).copy(capturedAt = 0),
+        )
+    }
+    @Test fun malformedWakeupReasonsAndKernelWakelocksAreRejected() {
+        val snapshot = BatteryStatsParser.parseCheckin("""
+            9,0,l,wr
+            9,0,l,wr,short,123
+            9,0,l,wr,unknown_time,unknown,2
+            9,0,l,wr,negative_time,-1,2
+            9,0,l,wr,unknown_count,123,unknown
+            9,0,l,wr,negative_count,123,-1
+            9,0,l,wr,oversized_count,123,2147483648
+            9,0,l,kwl,short,123
+            9,0,l,kwl,invalid,unknown,2
+        """.trimIndent())
+        assertTrue(snapshot.wakeupReasons.isEmpty())
+        assertTrue(snapshot.kernelWakelocks.isEmpty())
+        assertEquals(9, snapshot.rejectedRecords)
+        assertTrue(snapshot.reportedTags.containsAll(listOf("wr", "kwl")))
+    }
     @Test fun fullPartialAndWindowWakelocksRemainDistinct() {
         val snapshot = BatteryStatsParser.parseCheckin("9,10001,l,wl,tag,100,f,2,0,60,100,200,p,3,0,100,200,50,bp,1,0,50,50,300,w,4,0,100,300")
         assertEquals(3, snapshot.wakelocks.size)

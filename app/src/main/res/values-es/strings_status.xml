@@ -71,6 +71,7 @@
     <string name="status_issue_history_failed">No se pudo guardar el historial</string>
     <string name="status_issue_gap">La monitorización se pausó; el hueco no se cuenta</string>
     <string name="status_issue_charge_counter">El contador de carga faltaba o se reinició</string>
+    <string name="status_issue_doze_whitelist_unreadable">No se pudo leer la lista de apps excluidas de la optimización de batería, así que el hallazgo de Doze puede estar desactualizado</string>
     <string name="status_issue_advanced_failed">No se pudieron leer las estadísticas por app</string>
     <string name="status_issue_format_invalid">No se entendió el informe de batería de Android</string>
     <string name="status_issue_interrupted">Se interrumpió la lectura de estadísticas por app</string>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_channel_name">Análisis</string>
+    <string name="insights_channel_description">Aviso ocasional cuando algo agota tu batería</string>
+    <string name="insights_notification_title">Análisis de batería</string>
+    <string name="insights_notification_text">Algo podría estar agotando tu batería. Toca para revisar.</string>
+</resources>

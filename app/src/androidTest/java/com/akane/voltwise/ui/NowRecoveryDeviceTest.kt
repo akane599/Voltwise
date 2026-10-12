@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -15,6 +15,7 @@ import com.akane.voltwise.battery.apps.AppUsageSnapshot
 import com.akane.voltwise.battery.data.DesignCapacityReading
 import com.akane.voltwise.battery.data.RepositoryRecoveryTest
 import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.insights.model.InsightReport
 import com.akane.voltwise.battery.service.MonitoringController
 import com.akane.voltwise.test.DeviceEnvironment
 import com.akane.voltwise.ui.screens.now.NowScreen
@@ -50,6 +51,9 @@ class NowRecoveryDeviceTest {
         override val settings = fixture.settings.flow
         override val design: Flow<DesignCapacityReading> = flowOf(DesignCapacityReading.Unknown)
         override val cachedAppUsage: Flow<AppUsageSnapshot?> = flowOf(null)
+        override val insights: Flow<InsightReport?> = flowOf(null)
+        override val lastAnalyzedAt: Flow<Long?> = flowOf(null)
+        override val eligibleSessionCount: Flow<Int> = flowOf(0)
         override val activeSession = repo.activeSessionFlow
         override fun samplesSince(fromMs: Long) = repo.samplesBetween(fromMs, Long.MAX_VALUE)
         override fun day(epochDay: Long) = fixture.database.dailySummaryDao().day(epochDay)
@@ -86,18 +90,40 @@ class NowRecoveryDeviceTest {
             fixture.context.missingBattery = true
             compose.setContent {
                 MainTheme(dynamicColor = false) {
-                    NowScreen(onOpenHistory = {}, onOpenHealth = {}, onOpenApps = {}, onOpenApp = { _, _ -> }, vm = current.value)
+                    NowScreen(
+                        onOpenHistory = {},
+                        onOpenHealth = {},
+                        onOpenApps = {},
+                        onOpenApp = { _, _ -> },
+                        onOpenInsights = {},
+                        onOpenFinding = {},
+                        vm = current.value,
+                    )
                 }
             }
             runBlocking { fixture.refresh() }
-            compose.waitUntil(120_000) { fixture.repository.error.value?.contains("not supplied") == true }
+            // Repository changes precede the ViewModel's Default-dispatcher pipeline and UI collection.
+            // Wait for both the active model's expected state and the displayed controls at each transition.
+            compose.waitUntil(120_000) {
+                val hero = vm.state.value.hero
+                fixture.repository.error.value?.contains("not supplied") == true &&
+                    !hero.hasReading && !hero.monitoring &&
+                    compose.onNodeWithText(context.getString(R.string.now_waiting_reading)).isDisplayed() &&
+                    compose.onNodeWithText(context.getString(R.string.now_start_monitoring)).isDisplayed()
+            }
             compose.onNodeWithText(context.getString(R.string.now_waiting_reading)).assertIsDisplayed()
             compose.onNodeWithText(context.getString(R.string.now_start_monitoring)).assertIsDisplayed()
             DeviceEnvironment.screenshot("now-unavailable-scripted")
 
             fixture.context.missingBattery = false
             runBlocking { fixture.refresh() }
-            compose.waitUntil(120_000) { fixture.repository.error.value == null && fixture.repository.realtimeFlow.value.level == 80 }
+            compose.waitUntil(120_000) {
+                val hero = vm.state.value.hero
+                fixture.repository.error.value == null && fixture.repository.realtimeFlow.value.level == 80 &&
+                    hero.hasReading && hero.level == 80 && !hero.monitoring &&
+                    compose.onNodeWithText("80%").isDisplayed() &&
+                    compose.onNodeWithText(context.getString(R.string.now_start_monitoring)).isDisplayed()
+            }
             compose.onNodeWithText("80%").assertIsDisplayed()
             assertNull(fixture.repository.observation.value.startedAt)
             DeviceEnvironment.screenshot("now-recovered-scripted")
@@ -105,7 +131,11 @@ class NowRecoveryDeviceTest {
             // Drives the fixture's own repository state (never a click), so this never starts the real
             // production BatteryMonitorService/singleton repository the button's MonitoringController targets.
             fixture.repository.startSampling()
-            compose.waitUntil(120_000) { fixture.repository.isMonitoringFlow.value }
+            compose.waitUntil(120_000) {
+                val hero = vm.state.value.hero
+                fixture.repository.isMonitoringFlow.value && hero.hasReading && hero.level == 80 && hero.monitoring &&
+                    compose.onNodeWithText(context.getString(R.string.now_stop_monitoring)).isDisplayed()
+            }
             compose.onNodeWithText(context.getString(R.string.now_stop_monitoring)).assertIsDisplayed()
             DeviceEnvironment.screenshot("now-monitoring-started-scripted")
 
@@ -114,12 +144,23 @@ class NowRecoveryDeviceTest {
             val restarted = viewModel(fixture)
             models.put("scripted-now-restarted", restarted)
             compose.runOnUiThread { current.value = restarted }
+            // The old frame already showed 80% / Stop; only this model's non-default state proves recovery.
+            compose.waitUntil(120_000) {
+                val hero = restarted.state.value.hero
+                hero.hasReading && hero.level == 80 && hero.monitoring &&
+                    compose.onNodeWithText("80%").isDisplayed() &&
+                    compose.onNodeWithText(context.getString(R.string.now_stop_monitoring)).isDisplayed()
+            }
             compose.onNodeWithText("80%").assertIsDisplayed()
             compose.onNodeWithText(context.getString(R.string.now_stop_monitoring)).assertIsDisplayed()
             DeviceEnvironment.screenshot("now-restarted-scripted")
 
             fixture.repository.stopSampling()
-            compose.waitUntil(120_000) { !fixture.repository.isMonitoringFlow.value }
+            compose.waitUntil(120_000) {
+                val hero = restarted.state.value.hero
+                !fixture.repository.isMonitoringFlow.value && hero.hasReading && hero.level == 80 && !hero.monitoring &&
+                    compose.onNodeWithText(context.getString(R.string.now_start_monitoring)).isDisplayed()
+            }
             compose.onNodeWithText(context.getString(R.string.now_start_monitoring)).assertIsDisplayed()
             DeviceEnvironment.screenshot("now-monitoring-stopped-scripted")
         } finally {

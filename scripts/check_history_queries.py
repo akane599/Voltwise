@@ -16,6 +16,70 @@ def query(method, interface=None):
     assert found, 'Cannot locate actual DAO query: ' + method
     return found[1]
 
+# A full import can contain distinct observed points with the same wall timestamp.
+# One subsequent native write must trim only the overflow, not the whole cutoff tie.
+limits = (root / 'app/src/main/java/com/akane/voltwise/battery/data/HistoryFiles.kt').read_text()
+max_samples = int(re.search(r'const val MAX_SAMPLES = ([\d_]+)', limits)[1].replace('_', ''))
+cleanup_interval = int(re.search(r'const val CLEANUP_SAMPLE_INTERVAL = ([\d_]+)', limits)[1].replace('_', ''))
+assert 'SAMPLE_TRIM_TARGET = MAX_SAMPLES - CLEANUP_SAMPLE_INTERVAL' in limits
+trim_target = max_samples - cleanup_interval
+
+with sqlite3.connect(':memory:') as db:
+    entity = next(e for e in schema['entities'] if e['tableName'] == 'battery_samples')
+    db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    for index in entity.get('indices', []):
+        db.execute(index['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    db.executemany("INSERT INTO battery_samples(id,timestamp,status,screenOn,source,observationId,elapsedMs) VALUES(?,?,3,1,'import:BatteryManager','import:foreign',?)",
+                   ((-i, 1000 if i <= 300 else 1000 + i, i) for i in range(1, max_samples + 1)))
+    db.execute("INSERT INTO battery_samples(timestamp,status,screenOn,source,observationId,elapsedMs) VALUES(?,3,1,'BatteryManager','local',1)",
+               (max_samples + 2000,))
+    expected = [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC LIMIT ?', (trim_target,))]
+    db.execute(query('boundStorage', 'BatteryDao'), {'limit': trim_target})
+    remaining = db.execute('SELECT COUNT(*) FROM battery_samples').fetchone()[0]
+    assert remaining == trim_target, f'Tied-cutoff trim must keep exactly {trim_target} samples, got {remaining}'
+    assert [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC')] == expected, 'Trim must preserve exactly the newest timestamp/id rows'
+    assert db.execute('SELECT COUNT(*) FROM battery_samples WHERE timestamp=1000').fetchone()[0] == 99, 'Trim unnecessarily deleted tied oldest readings'
+    db.execute(query('boundStorage', 'BatteryDao'), {'limit': trim_target})
+    assert [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY timestamp DESC, id DESC')] == expected, 'At-target trim must be a no-op'
+    db.execute(query('clearAll', 'BatteryDao'))
+    for ids, limit in [((), 5), ((-7, 2, -2), 5), ((-7, 2, -2), 3), ((-7, 2, -2, 7, 1), 3), ((-7, 2, -2), 0)]:
+        db.executemany('INSERT INTO battery_samples(id,timestamp,status,screenOn) VALUES(?,1000,3,1)', ((i,) for i in ids))
+        db.execute(query('boundStorage', 'BatteryDao'), {'limit': limit})
+        assert [r[0] for r in db.execute('SELECT id FROM battery_samples ORDER BY id DESC')] == sorted(ids, reverse=True)[:limit], 'Empty/below-target/exact-target/all-tied/zero-limit trim control failed'
+        db.execute(query('clearAll', 'BatteryDao'))
+print('PASS actual BatteryDao trim SQL: full import + native write keeps exactly 99800 newest timestamp/id rows, tied cutoff, below/at-target and zero-limit controls')
+
+max_sessions = int(re.search(r'const val MAX_SESSIONS = ([\d_]+)', limits)[1].replace('_', ''))
+with sqlite3.connect(':memory:') as db:
+    db.row_factory = sqlite3.Row
+    entity = next(e for e in schema['entities'] if e['tableName'] == 'charge_sessions')
+    db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    for index in entity.get('indices', []):
+        db.execute(index['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    # A full allowed import followed by one native boundary, including a tie at the cutoff.
+    db.executemany("INSERT INTO charge_sessions(sessionId,type,startTime,endTime,source) VALUES(?,'DISCHARGE',?,?,'import:BatteryManager')",
+                   ((f'import:s{i:05d}', max(2, i), max(2, i) + 1) for i in range(max_sessions, 0, -1)))
+    db.execute("INSERT INTO charge_sessions(sessionId,type,startTime,activeKey) VALUES('native-boundary','CHARGE',?,1)", (max_sessions + 1,))
+    args = {'from': 0, 'to': max_sessions + 1, 'limit': max_sessions}
+    rows = db.execute(query('latestSessionsBetween', 'SessionDao'), args).fetchall()
+    expected = [f'import:s{i:05d}' for i in range(2, max_sessions + 1)] + ['native-boundary']
+    assert [r['sessionId'] for r in rows] == expected, 'ALL session export must keep newest 10000 in chronological/sessionId order across a tied cutoff'
+    assert len(db.execute(query('sessionsBetween', 'SessionDao'), {'from': 1, 'to': max_sessions + 1}).fetchall()) == max_sessions + 1, 'Explicit range must leave overflow for snapshot rejection'
+    args['to'] = max_sessions
+    assert len(db.execute(query('latestSessionsBetween', 'SessionDao'), args).fetchall()) == max_sessions, 'ALL export must honor its upper endpoint before applying the cap'
+    assert db.execute('SELECT COUNT(*) FROM charge_sessions').fetchone()[0] == max_sessions + 1, 'Session export deleted stored overflow'
+    db.execute(query('clearAll', 'SessionDao'))
+    for sid, start, end, last in [('after', 201, 250, None), ('b', 200, 220, None), ('a', 200, 220, None),
+                                  ('ends-at-from', 50, 100, None), ('last-sample-at-from', 60, None, 100),
+                                  ('before', 10, 99, None), ('no-end', 150, None, None)]:
+        db.execute("INSERT INTO charge_sessions(sessionId,type,startTime,endTime,lastSampleTime) VALUES(?,'DISCHARGE',?,?,?)", (sid, start, end, last))
+    expected = ['ends-at-from', 'last-sample-at-from', 'no-end', 'a', 'b']
+    for method in ('sessionsBetween', 'latestSessionsBetween'):
+        rows = db.execute(query(method, 'SessionDao'), {'from': 100, 'to': 200, 'limit': max_sessions}).fetchall()
+        assert [r['sessionId'] for r in rows] == expected, 'Session export changed inclusive overlap/coalesced endpoints or equal-time ordering'
+    assert db.execute('SELECT COUNT(*) FROM charge_sessions').fetchone()[0] == 7, 'Overlap export changed stored sessions'
+print('PASS actual SessionDao export SQL: 10001 stored/newest10000, chronological cutoff ties, unchanged count, untruncated explicit range, inclusive overlap/endpoints')
+
 with sqlite3.connect(':memory:') as db:
     for entity in schema['entities']:
         db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))
@@ -100,7 +164,7 @@ with sqlite3.connect(':memory:') as db:
     for rank in (2, 0, 1):
         db.execute("INSERT INTO session_app_usage(sessionId,rank,uid,packageName,powerMah,isOthers,basis) VALUES('closed',?,?,'p',1.5,?,'DELTA')",
                    (rank, 10000 + rank, int(rank == 2)))
-    assert [r[1] for r in db.execute(query('sessionUsageRows'), {'sessionId': 'closed'})] == [0, 1, 2], 'App usage not in rank order'
+    assert [r[1] for r in db.execute(query('sessionUsage'), {'sessionId': 'closed'})] == [0, 1, 2], 'App usage not in rank order'
     assert len(db.execute(query('usageForSessionsBetween'), {'from': 1500, 'to': 1600}).fetchall()) == 3, 'Export missed overlapping session usage'
     assert db.execute(query('usageForSessionsBetween'), {'from': 6000, 'to': 7000}).fetchall() == [], 'Export mixed in other sessions'
     db.execute(query('setAppUsageStatus'), {'sessionId': 'closed', 'status': 'READY', 'basis': 'DELTA'})
@@ -135,7 +199,7 @@ with sqlite3.connect(':memory:') as db:
     trend = db.execute(query('capacityEstimates'), {'limit': 5}).fetchall()
     assert [r['sessionId'] for r in trend] == ['s11', 's10', 's08', 's07', 's05'], 'Trend not newest-first estimates only, or unbounded'
     assert set(trend[0].keys()) == {'sessionId', 'type', 'startTime', 'endTime', 'lastSampleTime', 'startLevel', 'endLevel',
-                                    'capacityEstimateMah', 'capacityConfidence', 'capacityBasis'}, 'Trend projection columns drifted'
+                                    'capacityEstimateMah', 'capacityConfidence', 'capacityBasis', 'source'}, 'Trend projection columns drifted'
     # Per-session delete (SessionDao.deleteSession): snapshots, samples, then the row; uids and app usage cascade.
     snapshot_id = db.execute("INSERT INTO app_snapshots(sessionId,kind,capturedAt) VALUES('s07','BASELINE',1)").lastrowid
     db.execute("INSERT INTO app_snapshot_uids(snapshotId,uid,packageName,powerMah) VALUES(?,10001,'a',1.0)", (snapshot_id,))
@@ -151,3 +215,140 @@ with sqlite3.connect(':memory:') as db:
     assert counts == {'charge_sessions': 11, 'app_snapshots': 1, 'app_snapshot_uids': 0, 'session_app_usage': 1, 'battery_samples': 1}, \
         'Per-session delete missed rows or touched another session: %s' % counts
 print('PASS actual trend/delete SQL: bounded newest-first estimate projection, per-session delete with snapshot-uid and app-usage cascade')
+
+with sqlite3.connect(':memory:') as db:
+    db.row_factory = sqlite3.Row
+    db.execute('PRAGMA foreign_keys=ON')
+    for entity in schema['entities']:
+        db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+        for index in entity.get('indices', []):
+            db.execute(index['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    for session, kind, end in [('before', 'DISCHARGE', 99), ('discharge', 'DISCHARGE', 100),
+                               ('charge', 'CHARGE', 150), ('plugged', 'PLUGGED', 200),
+                               ('after', 'DISCHARGE', 201), ('open', 'DISCHARGE', None)]:
+        db.execute('INSERT INTO charge_sessions(sessionId,type,startTime,endTime) VALUES(?,?,0,?)', (session, kind, end))
+    assert [r['sessionId'] for r in db.execute(query('closedSessionsBetween'), {'from': 100, 'to': 200})] == ['discharge', 'charge', 'plugged'], 'Closed range must include both endpoints/all types, never open/outside sessions'
+    for day in (1, 2, 3):
+        db.execute('INSERT INTO daily_summaries(epochDay,screenOnMs,screenOffMs,screenOnDischargeUah,screenOffDischargeUah,chargedUah,updatedAt) VALUES(?,0,0,0,0,0,0)', (day,))
+    assert [r['epochDay'] for r in db.execute(query('range', 'DailySummaryDao'), {'fromDay': 1, 'toDay': 2})] == [1, 2], 'One-shot day range differs from flow'
+
+    # Room expands collection parameters. Execute the extracted SQL with the same bounded expansion.
+    def collection(method, parameter, values):
+        sql = query(method).replace(':' + parameter, ','.join('?' for _ in values))
+        return db.execute(sql, values).fetchall()
+    for session in ('charge', 'discharge'):
+        for rank in (1, 0):
+            db.execute('INSERT INTO session_device_wakers(sessionId,kind,name,count,totalMs,rank) VALUES(?,?,?,?,?,?)',
+                       (session, 'WAKEUP_REASON', f'alarm{rank}', rank + 1, 20, rank))
+            db.execute("INSERT INTO session_app_usage(sessionId,rank,uid,packageName,powerMah,isOthers,basis) VALUES(?,?,10001,'example.app',1,0,'DELTA')", (session, rank))
+    expected = [('charge', 0), ('charge', 1), ('discharge', 0), ('discharge', 1)]
+    for method in ('sessionWakers', 'usageRowsForSessions'):
+        assert [(r['sessionId'], r['rank']) for r in collection(method, 'sessionIds', ['discharge', 'charge'])] == expected, method
+        assert [r['sessionId'] for r in collection(method, 'sessionIds', ['charge'])] == ['charge', 'charge'], 'Mixed unrequested sessions'
+        assert collection(method, 'sessionIds', []) == [], 'Empty collection returned rows'
+    db.execute(query('deleteSessionWakers'), {'sessionId': 'charge'})
+    assert len(collection('sessionWakers', 'sessionIds', ['discharge', 'charge'])) == 2, 'Replacement delete touched another session'
+    db.execute(query('deleteSessionRow'), {'id': 'discharge'})
+    assert collection('sessionWakers', 'sessionIds', ['discharge']) == [], 'Session wakers did not cascade'
+    assert collection('usageRowsForSessions', 'sessionIds', ['discharge']) == [], 'Usage did not cascade'
+
+    snapshots = []
+    for at in range(4):
+        sid = db.execute("INSERT INTO app_snapshots(sessionId,kind,capturedAt) VALUES('charge','END',?)", (at,)).lastrowid
+        snapshots.append(sid)
+        db.execute("INSERT INTO snapshot_device_wakers VALUES(?,'KERNEL_WAKELOCK','kernel',1,20)", (sid,))
+    assert [r['name'] for r in db.execute(query('snapshotWakers'), {'snapshotId': snapshots[0]})] == ['kernel']
+    db.execute(query('pruneSnapshots'), {'keepLatest': 3})
+    assert db.execute(query('snapshotWakers'), {'snapshotId': snapshots[0]}).fetchall() == [], 'Pruned snapshot wakers did not cascade'
+    assert db.execute('SELECT COUNT(*) FROM snapshot_device_wakers').fetchone()[0] == 3
+    for table, sql in [('snapshot_device_wakers', "INSERT INTO snapshot_device_wakers VALUES(-1,'WAKEUP_REASON','missing',1,1)"),
+                       ('session_device_wakers', "INSERT INTO session_device_wakers VALUES('missing','WAKEUP_REASON','missing',1,1,0)")]:
+        try:
+            db.execute(sql)
+        except sqlite3.IntegrityError:
+            pass
+        else:
+            raise AssertionError(f'{table} accepted an absent parent')
+
+    for key, seen, score in [('old', 99, 1.0), ('boundary', 100, 3.0), ('new', 101, 2.0)]:
+        db.execute("INSERT INTO insight_findings(`key`,type,severity,confidence,score,firstSeenAt,lastSeenAt,status,evidenceVersion,evidenceJson) VALUES(?,'TREND','LOW','HIGH',?,1,?,'ACTIVE',1,'{}')", (key, score, seen))
+    for method in ('findings', 'findingsOnce'):
+        assert [r['key'] for r in db.execute(query(method, 'InsightDao'))] == ['boundary', 'new', 'old'], 'Findings ordering differs'
+    assert db.execute("SELECT feedbackMultiplier FROM insight_findings WHERE `key`='old'").fetchone()[0] == 1.0, 'SQL feedback default missing'
+    db.execute(query('setStatus', 'InsightDao'), {'key': 'boundary', 'status': 'DISMISSED'})
+    assert tuple(db.execute("SELECT status,feedbackMultiplier FROM insight_findings WHERE `key`='boundary'").fetchone()) == ('DISMISSED', 1.0), 'Status update changed feedback'
+    assert tuple(db.execute("SELECT status,feedbackMultiplier FROM insight_findings WHERE `key`='new'").fetchone()) == ('ACTIVE', 1.0), 'Targeted update touched another finding'
+    db.execute(query('purgeFindingsSeenBefore'), {'ms': 100})
+    assert [r['key'] for r in db.execute(query('findingsOnce'))] == ['boundary', 'new'], 'Retention boundary wrong'
+    for status, at in [('PREPARED', 1), ('UNKNOWN', 2), ('APPLIED', 3), ('FAILED', 4), ('REVERTED', 5), ('ONE_SHOT', 6)]:
+        db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt) VALUES('boundary','RESTRICT_BACKGROUND',0,?,1,?)", (status, at))
+    assert [r['status'] for r in collection('actionsWithStatus', 'statuses', ['PREPARED', 'UNKNOWN'])] == ['UNKNOWN', 'PREPARED'], 'Reconciliation selection wrong'
+    assert collection('actionsWithStatus', 'statuses', []) == []
+    expected_actions = [tuple(r) for r in db.execute(query('actionsOnce'))]
+    assert expected_actions == [tuple(r) for r in db.execute(query('actions'))]
+    assert len({r[0] for r in expected_actions}) == 6 and all(r[0] > 0 for r in expected_actions), 'Action IDs must be distinct and generated'
+    db.execute(query('clearFindings'))
+    assert db.execute(query('findingsOnce')).fetchall() == []
+    db.execute(query('clearAll', 'SessionDao'))
+    db.execute(query('clearSnapshots'))
+    assert db.execute('SELECT COUNT(*) FROM snapshot_device_wakers').fetchone()[0] == 0
+    assert expected_actions == [tuple(r) for r in db.execute(query('actionsOnce'))], 'Action journal must survive finding/history deletion'
+print('PASS actual v7 DAO SQL: inclusive closed/day ranges, collection selection/order, waker FK/cascades, finding status/feedback/retention, action reconciliation and independent journal')
+
+# Execute the DAO mutation calls in the real repository/retention transaction bodies, not a
+# separately maintained clear list. Host SQLite exercises the SQL/cascades, not Android Room.
+repository = (root / 'app/src/main/java/com/akane/voltwise/battery/data/BatteryRepository.kt').read_text()
+policy = (root / 'app/src/main/java/com/akane/voltwise/battery/data/HistoryPolicy.kt').read_text()
+clear_body = repository.split('private suspend fun clear(result:')[1].split('// Calibration')[0]
+retention_body = policy.split('suspend fun purgeExpired(')[1]
+
+def history_mutations(db, body, args):
+    calls = re.findall(r'(?:db\.)?(batteryDao|sessionDao|dailySummaryDao|appUsageDao|insightDao)(?:\(\))?\.(\w+)\(', body)
+    assert calls, 'History transaction has no DAO mutations'
+    for owner, method in calls:
+        interface = owner[0].upper() + owner[1:]
+        db.execute(query(method, interface), args)
+
+with sqlite3.connect(':memory:') as db:
+    db.row_factory = sqlite3.Row
+    db.execute('PRAGMA foreign_keys=ON')
+    for entity in schema['entities']:
+        db.execute(entity['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+        for index in entity.get('indices', []):
+            db.execute(index['createSql'].replace('${TABLE_NAME}', entity['tableName']))
+    for status in ('PREPARED', 'APPLIED', 'UNKNOWN', 'REVERTED', 'FAILED', 'ONE_SHOT', 'FUTURE_STATUS'):
+        for at in (99, 100, 101):
+            db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt) VALUES('f','RESTRICT_BACKGROUND',0,?,1,?)", (status, at))
+    for at in (99, 100, 101):
+        db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt) VALUES('uncertain_force_stop','FORCE_STOP',0,'UNKNOWN',1,?)", (at,))
+    # A recently undone action is not old just because its application was old.
+    db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt,appliedAt,revertedAt) VALUES('recent_undo','RESTRICT_BACKGROUND',0,'REVERTED',1,1,2,100)")
+    db.execute("INSERT INTO insight_actions(findingKey,type,userId,status,priorStateVersion,createdAt,appliedAt) VALUES('recent_one_shot','FORCE_STOP',0,'ONE_SHOT',1,1,100)")
+    for seen in (99, 100, 101):
+        db.execute("INSERT INTO insight_findings(key,type,severity,confidence,score,firstSeenAt,lastSeenAt,status,evidenceVersion,evidenceJson) VALUES(?,'TREND','LOW','HIGH',1,1,?,'ACTIVE',1,'{}')", (str(seen), seen))
+    for session, end in [('old', 99), ('boundary', 100)]:
+        db.execute("INSERT INTO charge_sessions(sessionId,type,startTime,endTime) VALUES(?,'DISCHARGE',0,?)", (session, end))
+        db.execute("INSERT INTO session_device_wakers VALUES(?,'WAKEUP_REASON','alarm',1,20,0)", (session,))
+        sid = db.execute("INSERT INTO app_snapshots(sessionId,kind,capturedAt) VALUES(?,'END',1)", (session,)).lastrowid
+        db.execute("INSERT INTO snapshot_device_wakers VALUES(?,'KERNEL_WAKELOCK','kernel',1,20)", (sid,))
+    history_mutations(db, retention_body, {'ms': 100, 'olderThan': 100, 'epochDay': 0})
+    expected = {(status, at) for status in ('PREPARED', 'APPLIED', 'UNKNOWN', 'REVERTED', 'FAILED', 'ONE_SHOT', 'FUTURE_STATUS')
+                for at in (99, 100, 101) if at >= 100 or status not in ('REVERTED', 'FAILED', 'ONE_SHOT')}
+    actual = {(r['status'], r['createdAt']) for r in db.execute(query('actionsOnce')) if r['findingKey'] == 'f'}
+    assert actual == expected, 'Retention must purge only expired terminal reversible actions, keeping Undo/reconciliation authority and cutoff boundary'
+    assert ('UNKNOWN', 99) in actual, 'Retention must preserve old reversible UNKNOWN actions as reconciliation authority'
+    force_stop_times = {r['createdAt'] for r in db.execute(query('actionsOnce')) if r['findingKey'] == 'uncertain_force_stop'}
+    assert 99 not in force_stop_times, 'Retention must purge old FORCE_STOP UNKNOWN actions without Undo/reconciliation authority'
+    assert 100 in force_stop_times, 'Retention must preserve FORCE_STOP UNKNOWN actions exactly at the cutoff'
+    assert 101 in force_stop_times, 'Retention must preserve recent FORCE_STOP UNKNOWN attempts'
+    assert db.execute("SELECT COUNT(*) FROM insight_actions WHERE findingKey LIKE 'recent_%'").fetchone()[0] == 2, 'Retention discarded a recently completed terminal action'
+    assert [r['key'] for r in db.execute(query('findingsOnce'))] == ['100', '101'], 'Repository retention must purge findings by lastSeenAt with an exclusive cutoff'
+    for table in ('session_device_wakers', 'snapshot_device_wakers'):
+        assert db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0] == 1, 'Retention must cascade expired wakers, preserving boundary session'
+    actions_before = [tuple(r) for r in db.execute(query('actionsOnce'))]
+    history_mutations(db, clear_body, {})
+    assert db.execute(query('findingsOnce')).fetchall() == [], 'Clear history must delete insight findings'
+    assert [tuple(r) for r in db.execute(query('actionsOnce'))] == actions_before, 'Clear history must preserve all insight actions byte-for-byte'
+    for table in ('charge_sessions', 'app_snapshots', 'session_device_wakers', 'snapshot_device_wakers'):
+        assert db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0] == 0, 'Clear history must delete history and cascade both waker tables'
+print('PASS history orchestration: Clear deletes findings/wakers but preserves actions; retention preserves reversible authority/future statuses and cutoff boundaries, purges expired FORCE_STOP UNKNOWN attempts')

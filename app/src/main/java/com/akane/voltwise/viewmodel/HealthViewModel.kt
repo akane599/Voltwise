@@ -15,6 +15,7 @@ import com.akane.voltwise.battery.data.db.CapacityEstimateRow
 import com.akane.voltwise.battery.data.db.ChargeSession
 import com.akane.voltwise.battery.data.db.SessionType
 import com.akane.voltwise.battery.data.uah
+import com.akane.voltwise.battery.data.usableStoredEstimates
 import com.akane.voltwise.battery.measurement.CapacityConfidence
 import com.akane.voltwise.battery.measurement.HealthSummary
 import com.akane.voltwise.settings.SettingsWrites
@@ -142,7 +143,7 @@ class HealthViewModel(
     ): HealthUiState {
         // Same list, same parse, same rule and design capacity as Now's card (NowMapping.healthSummary).
         val summary = HealthSummary.withDesign(
-            sessions.mapNotNull { HealthSummary.storedEstimate(it.capacityEstimateMah, it.capacityConfidence, it.capacityBasis) },
+            usableStoredEstimates(sessions),
             design.uah,
         )
         return HealthUiState(

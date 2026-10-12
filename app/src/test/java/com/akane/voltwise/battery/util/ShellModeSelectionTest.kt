@@ -23,7 +23,7 @@ class ShellModeSelectionTest {
                             adbAvailable = { probes += "adb"; true },
                         )
                     },
-                    runShizuku = { _, _ -> ShizukuBridge.RunResult.Error("original reason", reason) },
+                    runShizuku = { _, _, _ -> ShizukuBridge.RunResult.Error("original reason", reason) },
                     shizukuRunning = { running },
                     elapsedMs = { 0L },
                 )
@@ -52,7 +52,7 @@ class ShellModeSelectionTest {
             var commands = 0
             val runner = ShellRunner(
                 probeMode = { probes++; Mode.SHIZUKU },
-                runShizuku = { _, _ ->
+                runShizuku = { _, _, _ ->
                     commands++
                     ShizukuBridge.RunResult.Error("not running / permission denied", reason)
                 },

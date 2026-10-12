@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_channel_name">Insights</string>
+    <string name="insights_channel_description">Occasional notice when something is draining your battery</string>
+    <string name="insights_notification_title">Battery insight</string>
+    <string name="insights_notification_text">Something may be draining your battery. Tap to review.</string>
+</resources>

@@ -20,6 +20,9 @@
     <string name="settings_alert_full">Carga completa</string>
     <string name="settings_alert_sound">Sonido y vibración de alertas</string>
     <string name="settings_alert_sound_summary">En los ajustes de notificaciones de Android</string>
+    <string name="settings_notifications_off_title">Las notificaciones están desactivadas</string>
+    <string name="settings_notifications_off_body">No se pueden mostrar las alertas, los análisis ni la notificación de monitorización.</string>
+    <string name="settings_notifications_turn_on">Activar</string>
     <string name="settings_threshold_description">Umbral de %1$s, %2$s</string>
     <string name="settings_threshold_low_hint">Avisa cuando el nivel baje hasta aquí.</string>
     <string name="settings_threshold_high_hint">Avisa cuando la carga llegue a este nivel.</string>

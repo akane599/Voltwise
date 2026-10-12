@@ -26,6 +26,11 @@ class AppsFormatTest {
         check(3_400_000_000_000, "3,400", R.string.apps_unit_gb)
         check(1_262_000_000, "1,3", R.string.apps_unit_gb, tr)
         check(-5, "0", R.string.apps_unit_bytes)
+        // Rounding that reaches 1000 moves up a unit; decimals follow the rounded value.
+        check(999_999, "1.0", R.string.apps_unit_mb)
+        check(99_960, "100", R.string.apps_unit_kb)
+        check(999_600, "1.0", R.string.apps_unit_mb)
+        check(999_999_999, "1.0", R.string.apps_unit_gb)
     }
 
     @Test fun durationsUnderAMinuteKeepTheirSeconds() {

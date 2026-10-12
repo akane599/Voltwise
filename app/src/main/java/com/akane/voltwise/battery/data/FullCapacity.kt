@@ -1,6 +1,7 @@
 package com.akane.voltwise.battery.data
 
 import com.akane.voltwise.battery.data.db.ChargeSession
+import com.akane.voltwise.battery.measurement.CapacityEstimate
 import com.akane.voltwise.battery.measurement.CapacityEstimator
 import com.akane.voltwise.battery.measurement.HealthSummary
 
@@ -17,11 +18,15 @@ fun resolveFullUah(counterUah: Long?, levelPct: Int?, storedEstimateUah: Long?):
     }
 }
 
-/** Confidence-weighted median of usable local estimates, or imported estimates when no local estimate exists. */
-fun storedFullUah(sessions: List<ChargeSession>): Long? {
+/** Usable local estimates, or imported estimates when no local estimate exists. */
+fun usableStoredEstimates(sessions: List<ChargeSession>): List<CapacityEstimate> {
     val (imported, local) = sessions.mapNotNull { session ->
         HealthSummary.storedEstimate(session.capacityEstimateMah, session.capacityConfidence, session.capacityBasis)
             ?.let { session to it }
     }.partition { (session, _) -> session.source.startsWith("import:") || session.sessionId.startsWith("import:") }
-    return CapacityEstimator.combine(local.ifEmpty { imported }.map { it.second })?.fullUah
+    return local.ifEmpty { imported }.map { it.second }
 }
+
+/** Confidence-weighted median of usable local estimates, or imported estimates when no local estimate exists. */
+fun storedFullUah(sessions: List<ChargeSession>): Long? =
+    CapacityEstimator.combine(usableStoredEstimates(sessions))?.fullUah

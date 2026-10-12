@@ -59,6 +59,23 @@ class SessionDetailsViewModelTest {
 
     private fun (() -> SessionDetailsUiState).ready(): SessionDetailsUiState.Ready = this() as SessionDetailsUiState.Ready
 
+    @Test fun lowChargeDrainPrefersLocalCapacityAndFallsBackToImportedOnly() = runTest {
+        repo.row.value = discharge().copy(counterCoveredMs = 3 * HOUR)
+        repo.rows.value = listOf(sample(T0 + 3 * HOUR, level = 40, counter = 1_200_000))
+        val local = discharge().copy(sessionId = "local", capacityEstimateMah = 5_000, capacityConfidence = "MEDIUM")
+        val imported = List(3) { i -> discharge().copy(sessionId = "import:old-$i", capacityEstimateMah = 3_000) }
+        repo.sessions.value = listOf(local) + imported
+        val (_, state) = start()
+
+        assertEquals(8.0, state.ready().summary.percentPerHour!!, 1e-9)
+        assertEquals(8.0, (state.ready().insights as SessionInsights.Drain).screenOn.percentPerHour!!, 1e-9)
+
+        repo.sessions.value = imported
+        runCurrent()
+        assertEquals(400_000 * 100.0 / 3_000_000, state.ready().summary.percentPerHour!!, 1e-9)
+        assertEquals(400_000 * 100.0 / 3_000_000, (state.ready().insights as SessionInsights.Drain).screenOn.percentPerHour!!, 1e-9)
+    }
+
     @Test fun dischargeHeaderChartsAndDrainComeFromTheRowAndCalibratedReadings() = runTest {
         repo.row.value = discharge()
         repo.calibration.value = CurrentCalibration(CurrentUnit.MILLIAMPS)

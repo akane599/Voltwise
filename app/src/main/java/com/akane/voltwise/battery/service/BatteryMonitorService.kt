@@ -11,9 +11,14 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
+import com.akane.voltwise.battery.BatteryApp
 import com.akane.voltwise.battery.apps.SessionSnapshotCollector
+import com.akane.voltwise.battery.data.db.ChargeSession
+import com.akane.voltwise.battery.data.db.SessionType
 import com.akane.voltwise.battery.data.BatteryRepository
+import com.akane.voltwise.battery.data.MONITORING_STOPPED_CLOSE_REASON
 import com.akane.voltwise.battery.drain.DrainNotificationManager
 import com.akane.voltwise.battery.drain.NotificationIssue
 import com.akane.voltwise.battery.util.ShellRunner
@@ -22,10 +27,12 @@ import com.akane.voltwise.battery.measurement.BatteryAlerts
 import com.akane.voltwise.battery.measurement.BatteryAlert
 import com.akane.voltwise.battery.measurement.BatteryAlertSettings
 import com.akane.voltwise.battery.measurement.AlertReading
+import com.akane.voltwise.battery.measurement.alertEpisodeWriteDue
 import com.akane.voltwise.battery.util.UpdateGate
 import com.akane.voltwise.battery.widget.WidgetUpdater
 import com.akane.voltwise.settings.useFahrenheit
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import org.koin.android.ext.android.inject
 
@@ -85,6 +92,7 @@ class BatteryMonitorService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        recordPromptStart(intent?.action, monitoringStateStore(this))
         display("start prompt") { Notifier.cancelStartPrompt(this) }
         if (started) return START_STICKY
         try {
@@ -97,14 +105,24 @@ class BatteryMonitorService : Service() {
         }
         started = true
         monitoringStartedElapsed = SystemClock.elapsedRealtime()
-        repository.startSampling()
-        // Per-app baselines/ends at unplug and plug-in; runs (and dumps) only while monitoring runs.
-        serviceScope.launch(Dispatchers.Default) { sessionSnapshots.run() }
+        // Application subscriptions outlive STOP writes and must be ready before either producer.
+        serviceScope.startMonitoringWhenInsightsReady(
+            ready = (application as BatteryApp).insightRefreshReady,
+            startSampling = { repository.startSampling() },
+            snapshots = { sessionSnapshots.run() },
+            onFailure = {
+                diagnostics.record(DiagnosticCode.APP_SCOPE_FAILED)
+                stopSelf()
+            },
+        )
         serviceScope.launch(Dispatchers.IO) {
-            // Private, excluded from automatic backup; changes are written only at episode boundaries.
+            // Private, excluded from automatic backup. Only latched episodes need a fresh timestamp.
             val preferences = getSharedPreferences("battery_alert_episodes", MODE_PRIVATE)
             val saved = preferences.getStringSet("latched", emptySet()).orEmpty()
-            val alerts = BatteryAlerts(BatteryAlert.entries.filter { it.name in saved }.toSet())
+            var savedElapsedMs = preferences.getLong("last_elapsed_ms", -1L).takeIf { it >= 0 }
+            val savedBootCount = preferences.getInt("boot_count", -1).takeIf { it >= 0 }
+            val bootCount = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1).takeIf { it >= 0 }
+            val alerts = BatteryAlerts(BatteryAlert.entries.filter { it.name in saved }.toSet(), savedElapsedMs, savedBootCount)
             var alertChannelReady = false
             var previousIntervalMs: Long? = null
             combine(repository.realtimeFlow, repository.settingsFlow) { reading, settings -> reading to settings }
@@ -118,7 +136,7 @@ class BatteryMonitorService : Service() {
                     previousIntervalMs = reading.expectedIntervalMs
                     // Calibrated current: an inverted or mA-reporting device still trips the discharge alert.
                     val events = alerts.accept(AlertReading(sample.elapsedMs, sample.levelPercent,
-                        sample.status, sample.plugged, reading.currentUa, sample.temperatureDeciC, intervalMs),
+                        sample.status, sample.plugged, reading.currentUa, sample.temperatureDeciC, intervalMs, bootCount),
                         BatteryAlertSettings(settings.lowBatteryAlertEnabled, settings.lowBatteryThreshold,
                             settings.highBatteryAlertEnabled, settings.highBatteryThreshold,
                             settings.temperatureWarningEnabled, settings.temperatureThreshold.toDouble(),
@@ -133,16 +151,22 @@ class BatteryMonitorService : Service() {
                                 // The alert text shows the calibrated current, as the realtime values do.
                                 val shown = sample.copy(currentNowUa = reading.currentUa)
                                 events.forEach { Notifier.batteryAlert(this@BatteryMonitorService, it, shown, settings) }
-                            } else alerts.restoreLatches(before)
+                            } else alerts.retryDelivery()
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: RuntimeException) {
-                        alerts.restoreLatches(before)
+                        alerts.retryDelivery()
                         diagnostics.record(DiagnosticCode.ALERT_FAILED)
                         Log.w("BatteryAlerts", "Alert delivery failed (${e.javaClass.simpleName})")
                     }
-                    if (alerts.latches != before) preferences.edit().putStringSet("latched", alerts.latches.map { it.name }.toSet()).apply()
+                    if (alertEpisodeWriteDue(alerts.latches != before, alerts.latches.isNotEmpty(), savedElapsedMs, sample.elapsedMs)) {
+                        // Refresh while latched so an abrupt process death does not age a still-observed episode.
+                        preferences.edit().putStringSet("latched", alerts.latches.map { it.name }.toSet())
+                            .putLong("last_elapsed_ms", sample.elapsedMs)
+                            .putInt("boot_count", bootCount ?: -1).apply()
+                        savedElapsedMs = sample.elapsedMs
+                    }
                 }
         }
         // Display updates: only with the screen on, on changed content, ≥5 s apart; SCREEN_ON pushes at once (gated in run).
@@ -190,4 +214,69 @@ class BatteryMonitorService : Service() {
         super.onDestroy()
     }
     override fun onBind(intent: Intent?): IBinder? = null
+}
+
+/** Keeps synchronous sampling startup on the service lifecycle dispatcher; only snapshots move off main. */
+internal fun CoroutineScope.startMonitoringWhenInsightsReady(
+    ready: Deferred<Unit>,
+    startSampling: () -> Unit,
+    snapshots: suspend () -> Unit,
+    onFailure: () -> Unit,
+    snapshotsDispatcher: CoroutineDispatcher = Dispatchers.Default,
+): Job = launch {
+    try {
+        ready.await()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        onFailure()
+        return@launch
+    }
+    // The service scope uses Main.immediate, serial with onDestroy; no suspension separates this start.
+    startSampling()
+    withContext(snapshotsDispatcher) { snapshots() }
+}
+
+/** Coalesce bursts without cancelling analysis: one refresh runs, and only the latest pending event is kept. */
+internal suspend fun refreshOnFinalizedSessions(
+    finalizedSessions: Flow<String>,
+    record: (DiagnosticCode) -> Unit,
+    closedSessions: Flow<ChargeSession> = emptyFlow(),
+    onSubscribed: () -> Unit = {},
+    refresh: suspend () -> Unit,
+) = coroutineScope {
+    val pending = Channel<Unit>(Channel.CONFLATED)
+    // UNDISPATCHED makes registration complete before the caller starts event producers.
+    val finalized = launch(start = CoroutineStart.UNDISPATCHED) {
+        finalizedSessions.collect { pending.trySend(Unit) }
+    }
+    val closed = launch(start = CoroutineStart.UNDISPATCHED) {
+        closedSessions.collect {
+            // Stop cancels the service's snapshot collector before this application writer commits.
+            // Its ordinary device measurements are ready now; other discharges await finalization.
+            if (it.type != SessionType.DISCHARGE || it.closeReason == MONITORING_STOPPED_CLOSE_REASON) {
+                pending.trySend(Unit)
+            }
+        }
+    }
+    // A synchronously failing source cancels this scope before registration can be ready.
+    currentCoroutineContext().ensureActive()
+    onSubscribed()
+    launch {
+        joinAll(finalized, closed)
+        pending.close()
+    }
+    try {
+        for (event in pending) {
+            try {
+                refresh()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                record(DiagnosticCode.APP_SCOPE_FAILED)
+            }
+        }
+    } finally {
+        pending.cancel()
+    }
 }

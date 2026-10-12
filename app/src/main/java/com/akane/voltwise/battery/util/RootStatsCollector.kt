@@ -16,13 +16,23 @@ object RootStatsCollector {
     @Volatile private var cachedRoot: Boolean? = null
     @Volatile private var cachedAt = 0L
 
-    suspend fun isRootAvailable(): Boolean {
-        cachedRoot?.let { if (SystemClock.elapsedRealtime() - cachedAt < 60_000) return it }
+    suspend fun isRootAvailable(): Boolean = isRootAvailable(SystemClock::elapsedRealtime) { timeoutMs ->
+        runInterruptible(Dispatchers.IO) { CommandOutput.run(listOf("su", "-c", "id"), timeoutMs, 4096) }
+    }
+
+    internal suspend fun isRootAvailable(
+        elapsedMs: () -> Long,
+        runProbe: suspend (Long) -> CommandOutput.Result,
+    ): Boolean {
+        cachedRoot?.let { if (elapsedMs() - cachedAt < 60_000) return it }
         return probeLock.withLock {
-            cachedRoot?.let { if (SystemClock.elapsedRealtime() - cachedAt < 60_000) return@withLock it }
-            val result = runInterruptible(Dispatchers.IO) { CommandOutput.run(listOf("su", "-c", "id"), 4_000, 4096) }
+            cachedRoot?.let { if (elapsedMs() - cachedAt < 60_000) return@withLock it }
+            val result = runProbe(15_000)
             val available = result.successful && Regex("(?:^|\\s)uid=0(?:\\D|$)").containsMatchIn(result.output)
-            cachedRoot = available; cachedAt = SystemClock.elapsedRealtime()
+            // Timeouts/read failures can outlive a grant prompt; only definite access evidence is cached.
+            if (available || result.accessFailure != null) {
+                cachedRoot = available; cachedAt = elapsedMs()
+            }
             available
         }
     }

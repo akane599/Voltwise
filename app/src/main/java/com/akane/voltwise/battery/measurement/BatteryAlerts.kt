@@ -11,23 +11,34 @@ data class BatteryAlertSettings(
     val full: Boolean = true
 )
 data class AlertReading(val elapsedMs: Long, val level: Int?, val status: Int, val plugged: Int?,
-    val currentUa: Long?, val temperatureDeciC: Int?, val samplingIntervalMs: Long)
+    val currentUa: Long?, val temperatureDeciC: Int?, val samplingIntervalMs: Long, val bootCount: Int? = null)
 
 /** Hysteresis and persisted episode latches prevent per-sample and service-restart alert storms. */
-class BatteryAlerts(initialLatches: Set<BatteryAlert> = emptySet()) {
+class BatteryAlerts(initialLatches: Set<BatteryAlert> = emptySet(), initialElapsedMs: Long? = null,
+    private val initialBootCount: Int? = null) {
     private val active = initialLatches.toMutableSet()
     val latches: Set<BatteryAlert> get() = active.toSet()
-    fun restoreLatches(saved: Set<BatteryAlert>) { active.clear(); active.addAll(saved) }
-    private var lastElapsed: Long? = null
+    private var beforeDelivery: Set<BatteryAlert> = emptySet()
+    fun retryDelivery() { active.clear(); active.addAll(beforeDelivery) }
+    private var restoring = initialLatches.isNotEmpty()
+    var lastAcceptedElapsedMs: Long? = initialElapsedMs
+        private set
     private var highCurrentSince: Long? = null
     private var highCurrentSamples = 0
 
     fun accept(reading: AlertReading, settings: BatteryAlertSettings): Set<BatteryAlert> {
-        val previous = lastElapsed
-        if (previous != null && reading.elapsedMs == previous) return emptySet()
+        val previous = lastAcceptedElapsedMs
+        if (!restoring && previous != null && reading.elapsedMs == previous) return emptySet()
         val gap = previous != null && (reading.elapsedMs < previous ||
             reading.elapsedMs - previous > reading.samplingIntervalMs.coerceIn(5_000, 300_000) * 3 + 10_000)
-        lastElapsed = reading.elapsedMs
+        if (restoring) {
+            val anotherBoot = initialBootCount != null && reading.bootCount != null && initialBootCount != reading.bootCount
+            if (previous == null || gap || anotherBoot) active.clear()
+            restoring = false
+        }
+        // Delivery failure must roll back to the validated episode, never to an expired saved latch.
+        beforeDelivery = active.toSet()
+        lastAcceptedElapsedMs = reading.elapsedMs
         if (gap) { highCurrentSince = null; highCurrentSamples = 0 }
         val level = reading.level?.takeIf { it in 0..100 }
         val power = BatteryReading.powerState(reading.status, reading.plugged)

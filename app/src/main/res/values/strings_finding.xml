@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Finding details (ui/screens/insights/FindingDetailsScreen.kt, FindingChart.kt). Keys prefixed finding_.
+     Labels for engine enums, units and apply results live in strings_insights.xml and are reused from there. -->
+<resources>
+    <!-- Sections -->
+    <string name="finding_what_we_saw">What we saw</string>
+    <string name="finding_why_it_matters">Why it matters</string>
+    <string name="finding_what_it_is_not">What it isn\'t</string>
+    <string name="finding_evidence">Evidence</string>
+    <string name="finding_over_time">Over time</string>
+    <string name="finding_causes">Possible causes</string>
+    <string name="finding_causes_hint">Hints from this session, not proof. Named wakelocks and wakeup reasons point where to look.</string>
+    <string name="finding_what_you_can_do">What you can do</string>
+
+    <!-- Evidence rows -->
+    <string name="finding_usually">Usually %1$s</string>
+    <plurals name="finding_sessions">
+        <item quantity="one">%d session</item>
+        <item quantity="other">%d sessions</item>
+    </plurals>
+    <plurals name="finding_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+
+    <!-- Chart -->
+    <string name="finding_unit_hours">h</string>
+    <string name="finding_chart_usual_range">Usual range</string>
+    <string name="finding_chart_outside">Outside usual range</string>
+    <string name="finding_chart_usual">Usual</string>
+    <string name="finding_chart_latest">Latest</string>
+    <plurals name="finding_chart_summary">
+        <item quantity="one">%1$s from %2$s to %3$s: %4$d reading, latest %5$s.</item>
+        <item quantity="other">%1$s from %2$s to %3$s: %4$d readings, latest %5$s.</item>
+    </plurals>
+    <string name="finding_chart_summary_band">Usual range %1$s to %2$s.</string>
+    <plurals name="finding_chart_summary_outside">
+        <item quantity="one">%d reading is outside it.</item>
+        <item quantity="other">%d readings are outside it.</item>
+    </plurals>
+    <string name="finding_chart_summary_usual">Usually %1$s.</string>
+
+    <!-- Possible causes -->
+    <string name="finding_cause_kernel_wakelock">Kernel wakelock</string>
+    <string name="finding_cause_wakeup_reason">Wakeup reason</string>
+    <string name="finding_cause_app">App</string>
+
+    <!-- Fixes -->
+    <string name="finding_irreversible">Can\'t be undone</string>
+    <string name="finding_needs_access">%1$s needs Shizuku or root</string>
+    <string name="finding_opens_settings">Opens Android settings. Nothing changes until you change it there.</string>
+    <string name="finding_not_a_problem">Not a problem</string>
+    <string name="finding_dismiss">Dismiss</string>
+    <string name="finding_feedback_hint">Not a problem: Insights flags this less often. Dismiss: hidden until it shows up again.</string>
+
+    <!-- Missing finding -->
+    <string name="finding_gone_title">This finding isn\'t listed any more</string>
+    <string name="finding_gone_body">It was dismissed, or the latest analysis no longer shows it.</string>
+    <string name="finding_loading">Loading finding…</string>
+
+    <!-- What we saw, per FindingType -->
+    <string name="finding_seen_app_drain_anomaly">This app used much more battery per hour than it usually does, across recent sessions on battery.</string>
+    <string name="finding_seen_new_heavy_app">This app was barely noticeable before. In the latest session on battery it took a large share of the drain and spent more time in the background than in the foreground.</string>
+    <string name="finding_seen_background_runaway">This app spent far more time running in the background than it usually does.</string>
+    <string name="finding_seen_stuck_wakelock">This app held the phone awake with wakelocks much longer than usual while it was in the background.</string>
+    <string name="finding_seen_wakeup_storm">This app set off far more wakeup alarms per hour than it usually does.</string>
+    <string name="finding_seen_job_storm">This app ran far more jobs or syncs per hour than it usually does.</string>
+    <string name="finding_seen_doze_blocked">With the screen off, your phone spent much less time in deep Doze than usual.</string>
+    <string name="finding_seen_doze_whitelisted_drainer">This app is exempt from battery optimization and had background activity in the latest session.</string>
+    <string name="finding_seen_screen_off_drain_high">Your battery drained faster than usual while the screen was off.</string>
+    <string name="finding_seen_trend">Over the last 7 days this changed compared with the 3 weeks before.</string>
+    <string name="finding_seen_charging_at_full">Your phone stayed plugged in at full charge for hours, several times in the last two weeks.</string>
+    <string name="finding_seen_hot_charging">Your battery got hot while charging, several times recently.</string>
+    <string name="finding_seen_health_decline">Your battery\'s estimated capacity has been falling steadily for weeks.</string>
+    <string name="finding_seen_background_location">This app used location or sensors in the background more than it usually does.</string>
+    <string name="finding_seen_background_radio">This app kept the mobile radio active or moved data in the background more than usual.</string>
+    <string name="finding_seen_lingering_foreground_service">This app had high foreground-service activity compared with foreground use.</string>
+    <string name="finding_seen_action_effect">This compares the app before and after a fix you applied in Voltwise.</string>
+
+    <!-- Why it matters, per FindingType -->
+    <string name="finding_matters_app_drain_anomaly">A sudden rise often means something is stuck, such as a sync loop or a buggy update, rather than how you use it.</string>
+    <string name="finding_matters_new_heavy_app">New background drainers are often a recent install or update that keeps working when you aren\'t using it.</string>
+    <string name="finding_matters_background_runaway">Background work keeps the processor and radios busy, which drains the battery while you aren\'t looking.</string>
+    <string name="finding_matters_stuck_wakelock">While a wakelock is held the phone can\'t sleep, so the battery drains even with the screen off.</string>
+    <string name="finding_matters_wakeup_storm">Each wakeup pulls the phone out of sleep. Many of them add up and keep Doze from engaging.</string>
+    <string name="finding_matters_job_storm">Jobs and syncs can wake the phone and use the network. Frequent activity can keep it from resting.</string>
+    <string name="finding_matters_doze_blocked">Deep Doze is how Android saves battery overnight. Without it, standby drain is higher.</string>
+    <string name="finding_matters_doze_whitelisted_drainer">Exempt apps keep running when Android would otherwise pause them, so their background work costs more.</string>
+    <string name="finding_matters_screen_off_drain_high">Screen-off drain is battery you lose without using the phone. Higher than usual usually means something keeps it awake.</string>
+    <string name="finding_matters_trend">A lasting change shows up here before it is obvious day to day.</string>
+    <string name="finding_matters_charging_at_full">Sitting at full charge for long periods ages a battery faster, especially when it\'s warm.</string>
+    <string name="finding_matters_hot_charging">Heat is the main thing that wears a battery out. Charging while hot speeds that up.</string>
+    <string name="finding_matters_health_decline">Less capacity means shorter battery life per charge. Every battery wears with age, but charging habits can slow it down.</string>
+    <string name="finding_matters_background_location">Location and sensor activity can use battery in the background. The measured counter shows which activity was observed.</string>
+    <string name="finding_matters_background_radio">An active mobile radio uses a lot of power and stays on for a while after each transfer.</string>
+    <string name="finding_matters_lingering_foreground_service">A foreground service keeps the app alive and allowed to work, even when you think it is closed.</string>
+    <string name="finding_matters_action_effect">It shows whether the fix seems to help, so you can keep it or undo it.</string>
+
+    <!-- What it isn't, grouped -->
+    <string name="finding_not_app_usage">Not proof the app is broken. Android reports per-app time and activity, not exact battery energy, and heavy use you chose counts too.</string>
+    <string name="finding_not_proxy">Not a measure of energy. Background time, wakeups and jobs are signs of activity, and the app may need some of them for messages, music or navigation.</string>
+    <string name="finding_not_device">Not tied to one app. Named wakelocks and wakeup reasons are session hints, not proof of the cause.</string>
+    <string name="finding_not_trend">Not a cause. A change in how you use the phone shows up here too.</string>
+    <string name="finding_not_charging">Not damage already done. Heat and long hours at full add wear over months; one session matters little.</string>
+    <string name="finding_not_health">Not an exact capacity. Estimates vary from charge to charge; the trend over weeks matters more than one value.</string>
+    <string name="finding_not_effect">An association, not proof. Other changes in the same days affect the numbers too.</string>
+</resources>

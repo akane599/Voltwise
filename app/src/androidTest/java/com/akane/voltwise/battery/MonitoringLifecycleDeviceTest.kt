@@ -5,11 +5,13 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Intent
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.Until
 import com.akane.voltwise.R
 import com.akane.voltwise.battery.drain.DrainNotificationManager
@@ -48,6 +50,7 @@ class MonitoringLifecycleDeviceTest {
         lateinit var launchIntent: Intent
         scenario.onActivity { ownActivity = it; launchIntent = Intent(it.intent) }
         var phase = "start monitoring"
+        var testFailure: Throwable? = null
         try {
             context.stopService(service); repo.stopSampling()
             await { !repo.isMonitoringFlow.value }
@@ -94,10 +97,28 @@ class MonitoringLifecycleDeviceTest {
             assertTrue("Notification shade did not open", device.openNotification())
             // The custom views show the headline ("+1,240 mA · 5.2 W", collapsed) or the state ("Charging · AC charger", expanded).
             val shown = Pattern.compile(".+ m?A · .+ W|" + Pattern.quote(charging) + "( · .+)?")
-            val row = device.wait(Until.findObject(By.pkg("com.android.systemui").text(shown)), 120_000)
+            val rowSelector = By.pkg("com.android.systemui").text(shown)
+            val notificationShown = device.wait(Until.hasObject(rowSelector), 120_000)
             DeviceEnvironment.screenshot("notification-charging-simulated-battery")
-            assertNotNull("Monitoring notification is missing from SystemUI", row)
-            row!!.click()
+            assertTrue("Monitoring notification is missing from SystemUI", notificationShown)
+            // Screenshot publication spans polling updates, so never retain a SystemUI view across it.
+            val tapDeadline = SystemClock.elapsedRealtime() + 120_000
+            var tapped = false
+            while (!tapped && SystemClock.elapsedRealtime() < tapDeadline) {
+                try {
+                    val row = device.findObject(rowSelector)
+                    if (row != null) {
+                        row.click()
+                        tapped = true
+                    }
+                } catch (_: StaleObjectException) {
+                    // UiAutomator 2.3.0 refreshes before injecting the click; reacquire only stale views.
+                }
+                if (!tapped) delay(100)
+            }
+            assertTrue("Monitoring notification could not be tapped in SystemUI", tapped)
+            val shade = By.res("com.android.systemui", "notification_stack_scroller")
+            assertTrue("Tapping the notification must close the shade", device.wait(Until.gone(shade), 120_000))
             // Since P3a the tap sends destination=now: the Now tab, no longer the drain details.
             val opened = device.wait(Until.hasObject(By.pkg(context.packageName).res(TestTags.TAB_NOW).selected(true)), 120_000)
             DeviceEnvironment.screenshot("notification-opens-now")
@@ -119,19 +140,38 @@ class MonitoringLifecycleDeviceTest {
             assertEquals("Restart starts a new observed window", 0L, repo.observation.value.screenOff.durationMs)
             assertNull(repo.observation.value.screenOff.chargeMah)
         } catch (failure: Throwable) {
+            testFailure = failure
             runCatching { DeviceEnvironment.screenshot("monitoring-failure") }
                 .exceptionOrNull()?.let(failure::addSuppressed)
-            throw AssertionError("Failed during $phase; observation=${repo.observation.value}; " +
+            val reportedFailure = AssertionError("Failed during $phase; observation=${repo.observation.value}; " +
                 "live=${repo.realtimeFlow.value}; errors=${repo.error.first()}", failure)
+            testFailure = reportedFailure
+            throw reportedFailure
         } finally {
-            context.stopService(service); repo.stopSampling()
-            demand.close()
-            device.executeShellCommand("dumpsys battery reset")
-            device.wakeUp()
+            var cleanupFailure: Throwable? = null
+            fun cleanup(action: () -> Unit) {
+                try {
+                    action()
+                } catch (failure: Throwable) {
+                    val primary = testFailure ?: cleanupFailure
+                    if (primary == null) cleanupFailure = failure else primary.addSuppressed(failure)
+                }
+            }
+            cleanup {
+                device.executeShellCommand("cmd statusbar collapse")
+                assertTrue("Notification shade must be closed after monitoring test cleanup",
+                    device.wait(Until.gone(By.res("com.android.systemui", "notification_stack_scroller")), 120_000))
+            }
+            cleanup { context.stopService(service) }
+            cleanup { repo.stopSampling() }
+            cleanup { demand.close() }
+            cleanup { device.executeShellCommand("dumpsys battery reset") }
+            cleanup { device.wakeUp() }
             // onNewIntent retains OPEN_DRAIN in production. ActivityScenario matches
             // lifecycle callbacks against its launch intent, including DESTROYED.
-            InstrumentationRegistry.getInstrumentation().runOnMainSync { ownActivity.intent = launchIntent }
-            scenario.close()
+            cleanup { InstrumentationRegistry.getInstrumentation().runOnMainSync { ownActivity.intent = launchIntent } }
+            cleanup { scenario.close() }
+            cleanupFailure?.let { throw it }
         }
     }
 }

@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import com.akane.voltwise.battery.apps.AppLabel
 import com.akane.voltwise.battery.apps.AppUsageBasis
 import com.akane.voltwise.battery.data.sampling.ChargerType
+import com.akane.voltwise.battery.insights.model.FindingType
+import com.akane.voltwise.battery.insights.model.Severity
 import com.akane.voltwise.battery.measurement.CapacityConfidence
 import com.akane.voltwise.battery.measurement.CurrentCalibration
 import com.akane.voltwise.battery.measurement.EtaBasis
@@ -29,9 +31,35 @@ data class NowUiState(
     /** Null until some session produced a capacity estimate. */
     val health: HealthState? = null,
     val topApps: TopAppsState = TopAppsState.Empty,
+    /**
+     * Null until analysis has completed and a report is loaded. Like Insights: findings first, then changes, then
+     * [InsightsSummary.learning], and only then [InsightsSummary.allGood].
+     */
+    val insightsSummary: InsightsSummary? = null,
     /** The applied correction while its notice is pending (Undo / Keep), else null. */
     val calibrationNotice: CurrentCalibration? = null,
     val useFahrenheit: Boolean = false,
+)
+
+@Immutable
+data class InsightsSummary(
+    val headline: InsightHeadline?,
+    val activeFindingCount: Int,
+    /** Informational trends with a direction: Insights lists them under Changes, so Now can't call them "all good". */
+    val changeCount: Int = 0,
+    /** No findings or changes and too few sessions with app data to judge apps yet: "still learning", not "all good". */
+    val learning: Boolean = false,
+) {
+    val allGood: Boolean get() = activeFindingCount == 0 && changeCount == 0 && !learning
+}
+
+@Immutable
+data class InsightHeadline(
+    val key: String,
+    val type: FindingType,
+    val severity: Severity,
+    /** Null for a device finding. */
+    val packageName: String?,
 )
 
 @Immutable

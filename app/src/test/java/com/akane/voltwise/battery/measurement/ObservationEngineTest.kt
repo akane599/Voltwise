@@ -77,6 +77,88 @@ class ObservationEngineTest {
         assertEquals(60_000L, result.dozeMs)
         assertEquals(0L, result.cpuSuspendMs)
     }
+    @Test fun interactiveDozeDoesNotCountAsScreenOffDoze() {
+        val engine = ObservationEngine()
+        engine.accept(point(0, doze = true))
+        engine.accept(point(60_000, doze = true, screen = false, boundary = Boundary.SCREEN))
+        val result = engine.accept(point(120_000, doze = false, screen = false, boundary = Boundary.DOZE, uptime = 90_000))
+        assertEquals(120_000L, result.dozeMs)
+        assertEquals(60_000L, result.screenOffDozeMs)
+        assertEquals(30_000L, result.screenOffSuspendMs)
+    }
+
+    @Test fun nonDischargingScreenOffDozeDoesNotEnterOnBatteryTime() {
+        for (power in listOf(PowerState.CHARGING, PowerState.PLUGGED, PowerState.UNKNOWN)) {
+            val engine = ObservationEngine()
+            engine.accept(point(0, screen = false, doze = true, power = power))
+            val result = engine.accept(point(60_000, screen = false, doze = true, power = power))
+            assertEquals(0, result.gaps)
+            assertEquals(60_000L, result.observedMs)
+            assertEquals(60_000L, result.dozeMs)
+            assertEquals(0L, result.screenOff.durationMs)
+            assertEquals("$power must not add on-battery screen-off Doze", 0L, result.screenOffDozeMs)
+        }
+    }
+
+    @Test fun nonDischargingScreenOffSuspendDoesNotEnterOnBatteryTime() {
+        for (power in listOf(PowerState.CHARGING, PowerState.PLUGGED, PowerState.UNKNOWN)) {
+            val engine = ObservationEngine()
+            engine.accept(point(0, screen = false, power = power))
+            val result = engine.accept(point(60_000, screen = false, power = power, uptime = 20_000))
+            assertEquals(0, result.gaps)
+            assertEquals(60_000L, result.cpuObservedMs)
+            assertEquals(40_000L, result.cpuSuspendMs)
+            assertEquals(0L, result.screenOff.durationMs)
+            assertEquals("$power must not add on-battery screen-off suspend", 0L, result.screenOffSuspendMs)
+        }
+    }
+
+    @Test fun unpluggingStartsOnBatteryScreenOffCountersAtTheBoundary() {
+        val engine = ObservationEngine()
+        engine.accept(point(0, screen = false, doze = true, power = PowerState.PLUGGED))
+        val unplugged = engine.accept(point(60_000, screen = false, doze = true,
+            boundary = Boundary.POWER, uptime = 20_000))
+        assertEquals(0L, unplugged.screenOffDozeMs)
+        assertEquals(0L, unplugged.screenOffSuspendMs)
+        val result = engine.accept(point(120_000, screen = false, doze = true, uptime = 40_000))
+        assertEquals(60_000L, result.screenOff.durationMs)
+        assertEquals(60_000L, result.screenOffDozeMs)
+        assertEquals(40_000L, result.screenOffSuspendMs)
+        assertEquals(120_000L, result.dozeMs)
+        assertEquals(80_000L, result.cpuSuspendMs)
+    }
+
+    @Test fun gapsAndUnconfirmedPowerChangesDoNotAccumulateDozeOrSuspend() {
+        for (next in listOf(
+            point(60_000, doze = true, screen = false, boundary = Boundary.GAP),
+            point(600_000, doze = true, screen = false),
+            point(60_000, doze = true, screen = false, power = PowerState.CHARGING),
+            point(60_000, doze = true, screen = false, generation = "two"),
+        )) {
+            val engine = ObservationEngine()
+            engine.accept(point(0, doze = true, screen = false))
+            val result = engine.accept(next)
+            assertEquals(1, result.gaps)
+            assertEquals(0L, result.dozeMs)
+            assertEquals(0L, result.screenOffDozeMs)
+            assertEquals(0L, result.screenOffSuspendMs)
+        }
+    }
+
+    @Test fun confirmedPowerBoundaryKeepsPriorStateDozeThenResetStartsEmpty() {
+        val engine = ObservationEngine()
+        engine.accept(point(0, doze = true, screen = false))
+        val result = engine.accept(point(60_000, doze = true, screen = false,
+            power = PowerState.CHARGING, boundary = Boundary.POWER, uptime = 20_000))
+        assertEquals(60_000L, result.screenOff.durationMs)
+        assertEquals(60_000L, result.dozeMs)
+        assertEquals(60_000L, result.screenOffDozeMs)
+        assertEquals(40_000L, result.screenOffSuspendMs)
+        engine.reset()
+        assertEquals(0L, engine.summary.screenOffDozeMs)
+        assertEquals(0L, engine.summary.screenOffSuspendMs)
+    }
+
     @Test fun missingCounterLeavesDurationButNoMadeUpCharge() {
         val engine = ObservationEngine()
         engine.accept(point(0, charge = null))

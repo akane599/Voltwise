@@ -13,7 +13,7 @@ class RootAccessLossTest {
             var commands = 0
             val runner = ShellRunner(
                 probeMode = { if (++probes == 1) Mode.ROOT else fallback },
-                runShizuku = { _, _ -> error("Must not retry through Shizuku") },
+                runShizuku = { _, _, _ -> error("Must not retry through Shizuku") },
                 shizukuRunning = { false },
                 elapsedMs = { 0L },
                 runRoot = { _, _ ->
@@ -38,7 +38,7 @@ class RootAccessLossTest {
         var commands = 0
         val runner = ShellRunner(
             probeMode = { probes++; Mode.ROOT },
-            runShizuku = { _, _ -> error("Must not retry through Shizuku") },
+            runShizuku = { _, _, _ -> error("Must not retry through Shizuku") },
             shizukuRunning = { false },
             elapsedMs = { 0L },
             runRoot = { _, timeoutMs ->
@@ -59,7 +59,7 @@ class RootAccessLossTest {
         var probes = 0
         val runner = ShellRunner(
             probeMode = { if (++probes == 1) Mode.ROOT else Mode.NONE },
-            runShizuku = { _, _ -> error("Must not retry through Shizuku") },
+            runShizuku = { _, _, _ -> error("Must not retry through Shizuku") },
             shizukuRunning = { false },
             elapsedMs = { 0L },
             runRoot = { _, _ -> CommandOutput.run(listOf("/batstats-missing-su-SQ64"), 1000) },
@@ -77,7 +77,7 @@ class RootAccessLossTest {
         var probes = 0
         val runner = ShellRunner(
             probeMode = { if (++probes == 1) Mode.ROOT else Mode.ADB },
-            runShizuku = { _, _ -> error("No command expected") },
+            runShizuku = { _, _, _ -> error("No command expected") },
             shizukuRunning = { false },
             elapsedMs = { now },
         )

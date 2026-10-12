@@ -111,6 +111,7 @@ import com.akane.voltwise.viewmodel.ReadProblem
 import com.akane.voltwise.viewmodel.StatsProblem
 import com.akane.voltwise.viewmodel.StatsSummary
 import java.util.Locale
+import kotlin.math.pow
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import rikka.shizuku.ShizukuProvider
@@ -658,7 +659,14 @@ internal fun byteSize(bytes: Long, locale: Locale): ByteSize {
         value /= BYTES_STEP
         index++
     }
-    return ByteSize(formatNumber(value, if (index == 0 || value >= 100) 0 else 1, locale), units[index])
+    // Round before settling on the unit and decimals, so 999.999 kB reads "1.0 MB" and 99.96 kB reads "100 kB".
+    fun decimalsFor(v: Double) = if (index == 0 || kotlin.math.round(v * 10) / 10 >= 100) 0 else 1
+    fun rounded(v: Double) = decimalsFor(v).let { d -> kotlin.math.round(v * 10.0.pow(d)) / 10.0.pow(d) }
+    if (rounded(value) >= BYTES_STEP && index < units.lastIndex) {
+        value = rounded(value) / BYTES_STEP
+        index++
+    }
+    return ByteSize(formatNumber(value, decimalsFor(value), locale), units[index])
 }
 
 private const val BYTES_STEP = 1000.0

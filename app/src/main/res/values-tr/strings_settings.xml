@@ -20,6 +20,9 @@
     <string name="settings_alert_full">Tam şarj</string>
     <string name="settings_alert_sound">Uyarı sesi ve titreşimi</string>
     <string name="settings_alert_sound_summary">Android bildirim ayarlarında</string>
+    <string name="settings_notifications_off_title">Bildirimler kapalı</string>
+    <string name="settings_notifications_off_body">Uyarılar, analizler ve izleme bildirimi gösterilemiyor.</string>
+    <string name="settings_notifications_turn_on">Aç</string>
     <string name="settings_threshold_description">%1$s eşiği, %2$s</string>
     <string name="settings_threshold_low_hint">Seviye bu değere düştüğünde uyar.</string>
     <string name="settings_threshold_high_hint">Şarj bu seviyeye ulaştığında uyar.</string>

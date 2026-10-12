@@ -10,17 +10,85 @@ import com.akane.voltwise.battery.measurement.ObservationEngine
 import com.akane.voltwise.battery.measurement.PowerState
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 
 class HistoryPolicyTest {
-    private fun sample() = BatterySample(timestamp = 1000, levelPercent = 0, status = 3, plugged = 0,
+    private fun sample(status: Int = 3, plugged: Int? = 0) = BatterySample(timestamp = 1000, levelPercent = 0, status = status, plugged = plugged,
         currentNowUa = 0, chargeCounterUah = 0, voltageMv = 4000, temperatureDeciC = 0,
         health = 2, screenOn = true, elapsedMs = 100, uptimeMs = 80, observationId = "observation", sessionId = "session", source = "BatteryManager")
     private fun session() = ChargeSession("session", SessionType.DISCHARGE, 1000, null, 60, 59, 1000, -1000, null,
         observationId = "observation", lastSampleTime = 2000, observedMs = 1000, counterCoveredMs = 1000, screenOnMs = 1000, screenOnUah = 1000)
+
+    private val importClock = Clock.fixed(Instant.parse("2026-10-10T12:00:00Z"), ZoneOffset.UTC)
+    private val importTimeMs = importClock.millis()
+    private val dayMs = 24 * 60 * 60 * 1000L
+
+    @Test fun sampleOneYearAfterImportTimeIsRejected() {
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            HistoryPolicy.sample(sample().copy(timestamp = importTimeMs + 365 * dayMs), importClock)
+        }
+        assertEquals("Invalid timestamp; exceeds import time allowance", failure.message)
+    }
+
+    @Test fun sampleOneHourAfterImportTimeIsAccepted() {
+        val timestamp = importTimeMs + 60 * 60 * 1000
+        assertEquals(timestamp, HistoryPolicy.sample(sample().copy(timestamp = timestamp), importClock).timestamp)
+    }
+
+    @Test fun sampleImportClockAllowanceIsInclusiveAndUsesTheInjectedClock() {
+        val boundary = sample().copy(timestamp = importTimeMs + dayMs)
+        assertEquals(boundary.timestamp, HistoryPolicy.sample(boundary, importClock).timestamp)
+        assertThrows(IllegalArgumentException::class.java) {
+            HistoryPolicy.sample(boundary.copy(timestamp = boundary.timestamp + 1), importClock)
+        }
+        val tomorrow = Clock.offset(importClock, java.time.Duration.ofDays(1))
+        assertEquals(boundary.timestamp + 1,
+            HistoryPolicy.sample(boundary.copy(timestamp = boundary.timestamp + 1), tomorrow).timestamp)
+    }
+
+    @Test fun absoluteTimestampBoundsStillApplyWithAnInjectedClock() {
+        for (timestamp in listOf(-1L, 253402300800000L, Long.MAX_VALUE)) {
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                HistoryPolicy.sample(sample().copy(timestamp = timestamp), importClock)
+            }
+            assertEquals("Invalid timestamp; expected Unix milliseconds", failure.message)
+        }
+    }
+
+    @Test fun everySessionTimestampRejectsExcessiveImportClockSkew() {
+        val boundary = importTimeMs + dayMs
+        val future = boundary + 1
+        val rows = listOf(
+            session().copy(startTime = future, endTime = future + 1000, lastSampleTime = future + 1000),
+            session().copy(startTime = importTimeMs, endTime = future, lastSampleTime = importTimeMs + 1000),
+            // Only the last sample is outside the allowance, even though session normalization would clamp it.
+            session().copy(startTime = boundary - 1000, endTime = boundary, lastSampleTime = future),
+            session().copy(startTime = importTimeMs, endTime = null, lastSampleTime = future),
+        )
+        for (row in rows) {
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                HistoryPolicy.session(row, clock = importClock)
+            }
+            assertEquals("Invalid timestamp; exceeds import time allowance", failure.message)
+        }
+    }
+
+    @Test fun closedAndActiveSessionsAcceptOneHourSkewAndTheOneDayBoundary() {
+        for (end in listOf(importTimeMs + 60 * 60 * 1000, importTimeMs + dayMs)) {
+            val row = session().copy(startTime = end - 1000, endTime = end, lastSampleTime = end)
+            val closed = HistoryPolicy.session(row, clock = importClock)
+            val active = HistoryPolicy.session(row.copy(endTime = null), clock = importClock)
+            assertEquals(end - 1000, closed.startTime)
+            assertEquals(end, closed.endTime)
+            assertEquals(end, closed.lastSampleTime)
+            assertEquals(end, active.endTime)
+            assertEquals(end, active.lastSampleTime)
+        }
+    }
 
     @Test fun sampleIdentitySurvivesRepeatedImportsAndLocalRowIds() {
         val original = sample()
@@ -49,6 +117,33 @@ class HistoryPolicyTest {
         }
         for (health in (1..7).toList() + null) {
             assertEquals(health, HistoryPolicy.sample(sample().copy(health = health)).health)
+        }
+    }
+    @Test fun legacyZeroSampleStatusBecomesUnknown() {
+        val result = runCatching { HistoryPolicy.sample(sample(status = 0)) }
+        assertTrue("Legacy status 0 must not abort import: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertEquals(HistoryPolicy.sample(sample(status = 1)), result.getOrThrow())
+        assertTrue(HistoryPolicy.sameSample(sample(status = 0), sample(status = 1)))
+    }
+    @Test fun outOfRangeSampleStatusBecomesUnknown() {
+        val result = runCatching { HistoryPolicy.sample(sample(status = 6)) }
+        assertTrue("Status 6 must not abort import: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertEquals(HistoryPolicy.sample(sample(status = 1)), result.getOrThrow())
+    }
+    @Test fun outOfRangeSamplePluggedBecomesMissing() {
+        val result = runCatching { HistoryPolicy.sample(sample(plugged = 16)) }
+        assertTrue("Plugged 16 must not abort import: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertEquals(HistoryPolicy.sample(sample(plugged = null)), result.getOrThrow())
+        assertTrue(HistoryPolicy.sameSample(sample(plugged = 16), sample(plugged = null)))
+    }
+    @Test fun validSamplePowerStateSurvivesImport() {
+        for (status in 1..5) {
+            for (plugged in (0..15).toList() + null) {
+                val imported = HistoryPolicy.sample(sample(status = status, plugged = plugged))
+                assertEquals(status, imported.status)
+                assertEquals(plugged, imported.plugged)
+                assertEquals(imported, HistoryPolicy.sample(imported))
+            }
         }
     }
     @Test fun invalidUnitsTimesAndTextAreRejected() {
@@ -171,7 +266,7 @@ class HistoryPolicyTest {
         val stored = HistoryPolicy.session(session()).copy(observedMs = 4000,
             counterCoveredMs = 4000, screenOnMs = 4000)
         val incoming = HistoryPolicy.session(stored)
-        val plan = HistoryPolicy.planSessionImport(HistoryPolicy.session(stored), incoming, hasAppUsage = false)
+        val plan = HistoryPolicy.planSessionImport(HistoryPolicy.session(stored), incoming)
         assertEquals(ImportSessionDisposition.UNCHANGED, plan.disposition)
     }
     @Test fun counterGapExtensionWithClockCorrectionsUpdatesImportedSession() {
@@ -179,7 +274,7 @@ class HistoryPolicyTest {
             observedMs = 3_600_000, counterCoveredMs = 3_600_000)
         val second = first.copy(endTime = 4_191_000, lastSampleTime = 4_191_000, observedMs = 4_200_000)
         val result = runCatching {
-            HistoryPolicy.planSessionImport(HistoryPolicy.session(first), second, hasAppUsage = false)
+            HistoryPolicy.planSessionImport(HistoryPolicy.session(first), second)
         }
         assertTrue("Counter-gap extension must update, not abort: ${result.exceptionOrNull()?.message}", result.isSuccess)
         val plan = result.getOrThrow()
@@ -187,9 +282,9 @@ class HistoryPolicyTest {
         assertEquals(4_190_000L, plan.session.observedMs)
         assertEquals(3_591_428L, plan.session.counterCoveredMs)
         assertEquals(ImportSessionDisposition.UNCHANGED,
-            HistoryPolicy.planSessionImport(plan.session, second, hasAppUsage = false).disposition)
+            HistoryPolicy.planSessionImport(plan.session, second).disposition)
         assertEquals(ImportSessionDisposition.STALE,
-            HistoryPolicy.planSessionImport(plan.session, first, hasAppUsage = false).disposition)
+            HistoryPolicy.planSessionImport(plan.session, first).disposition)
     }
     @Test fun genuinelyDecreasingRawCoverageStillRejectsAnExtension() {
         val previous = session().copy(source = "import:legacy", endTime = 3_591_000,
@@ -200,7 +295,7 @@ class HistoryPolicyTest {
             observedMs = 3_595_000, counterCoveredMs = 3_595_000)
         for (incoming in listOf(counterRegression, observedRegression)) {
             val failure = assertThrows(IllegalArgumentException::class.java) {
-                HistoryPolicy.planSessionImport(previous, incoming, hasAppUsage = false)
+                HistoryPolicy.planSessionImport(previous, incoming)
             }
             assertEquals("Incompatible imported session coverage", failure.message)
         }
@@ -277,31 +372,17 @@ class HistoryPolicyTest {
     }
     @Test fun missingUsageOnlyClearsTheIncomingReadyClaim() {
         val ready = session().copy(appUsageStatus = AppUsageStatus.READY, appUsageBasis = AppUsageBasis.DELTA)
-        val missing = HistoryPolicy.planSessionImport(null, ready, hasAppUsage = false)
+        val missing = HistoryPolicy.planSessionImport(null, ready)
         assertNull(missing.session.appUsageStatus)
         assertNull(missing.session.appUsageBasis)
         assertEquals(ImportSessionDisposition.ADDED, missing.disposition)
-        val full = HistoryPolicy.planSessionImport(missing.session, ready, hasAppUsage = true)
-        assertEquals(AppUsageStatus.READY, full.session.appUsageStatus)
-        assertEquals(ImportSessionDisposition.UPDATED, full.disposition)
+        val storedReady = HistoryPolicy.session(ready)
+        val retained = HistoryPolicy.planSessionImport(storedReady, ready)
+        assertEquals(ImportSessionDisposition.UNCHANGED, retained.disposition)
+        assertEquals(storedReady, retained.session)
         val unavailable = ready.copy(appUsageStatus = AppUsageStatus.NO_ACCESS)
         assertEquals(AppUsageStatus.NO_ACCESS,
-            HistoryPolicy.planSessionImport(null, unavailable, hasAppUsage = false).session.appUsageStatus)
-    }
-
-    @Test fun writtenUsagePromotesOnlyAnImportedNotRecordedParent() {
-        val imported = HistoryPolicy.session(session())
-        val rows = listOf(SessionAppUsage(imported.sessionId, 0, 10_000, "app.a", 1.5, basis = AppUsageBasis.DELTA))
-        val ready = HistoryPolicy.withImportedUsage(imported, rows)
-        assertEquals(AppUsageStatus.READY, ready.appUsageStatus)
-        assertEquals(AppUsageBasis.DELTA, ready.appUsageBasis)
-        assertEquals(imported, HistoryPolicy.withImportedUsage(imported, emptyList()))
-        val local = session()
-        assertEquals(local, HistoryPolicy.withImportedUsage(local, rows))
-        val existing = ready.copy(appUsageBasis = AppUsageBasis.WINDOW_RESET)
-        assertEquals(existing, HistoryPolicy.withImportedUsage(existing, rows))
-        val failed = imported.copy(appUsageStatus = AppUsageStatus.FAILED)
-        assertEquals(failed, HistoryPolicy.withImportedUsage(failed, rows))
+            HistoryPolicy.planSessionImport(null, unavailable).session.appUsageStatus)
     }
 
     @Test fun afterCloseValuesAreNotPartOfTheMeasurementAndAreKeptWhenAFileLacksThem() {
@@ -313,19 +394,6 @@ class HistoryPolicyTest {
         assertEquals(ready.copy(closeReason = null), HistoryPolicy.mergeDerived(ready, bare))
         assertEquals(bare.copy(appUsageStatus = AppUsageStatus.FAILED), HistoryPolicy.mergeDerived(ready, bare.copy(appUsageStatus = AppUsageStatus.FAILED))
             .copy(capacityEstimateMah = null, capacityConfidence = null, capacityBasis = null))
-    }
-    @Test fun appUsageRowsAreWholeRankedBreakdowns() {
-        fun row(rank: Int, others: Boolean = false) = SessionAppUsage("session", rank, 10_000 + rank, "app.$rank", 1.5, cpuTimeMs = 10,
-            isOthers = others, basis = AppUsageBasis.DELTA)
-        val valid = (0 until SessionAppUsage.MAX_ROWS).map { row(it, others = it == SessionAppUsage.MAX_ROWS - 1) } + row(0).copy(sessionId = "other")
-        val imported = HistoryPolicy.appUsage(valid)
-        assertEquals(setOf("import:session", "import:other"), imported.map { it.sessionId }.toSet())
-        assertEquals(imported, HistoryPolicy.appUsage(imported))
-        for (bad in listOf(listOf(row(SessionAppUsage.MAX_ROWS)), listOf(row(-1)), listOf(row(0), row(0)), listOf(row(0, true), row(1, true)),
-            listOf(row(0).copy(powerMah = -0.1)), listOf(row(0).copy(powerMah = Double.POSITIVE_INFINITY)), listOf(row(0).copy(wifiBytes = -1)),
-            listOf(row(0).copy(sessionId = " ")), listOf(row(0).copy(packageName = "=cmd")))) {
-            assertThrows(IllegalArgumentException::class.java) { HistoryPolicy.appUsage(bad) }
-        }
     }
     @Test fun retentionKeepsTheCutoffsWholeLocalDay() {
         assertEquals(0L, HistoryPolicy.retentionCutoffDay(0, ZoneOffset.UTC))
