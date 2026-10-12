@@ -87,8 +87,12 @@ interface SessionDao {
     @Query("SELECT * FROM charge_sessions WHERE activeKey = 1 LIMIT 1")
     fun activeFlow(): Flow<ChargeSession?>
 
-    @Query("SELECT * FROM charge_sessions WHERE startTime <= :to AND COALESCE(endTime, lastSampleTime, startTime) >= :from ORDER BY startTime")
+    @Query("SELECT * FROM charge_sessions WHERE startTime <= :to AND COALESCE(endTime, lastSampleTime, startTime) >= :from ORDER BY startTime, sessionId")
     suspend fun sessionsBetween(from: Long, to: Long): List<ChargeSession>
+
+    /** ALL exports omit only oldest overflow awaiting the writer's next trim, without deleting it. */
+    @Query("SELECT * FROM (SELECT * FROM charge_sessions WHERE startTime <= :to AND COALESCE(endTime, lastSampleTime, startTime) >= :from ORDER BY startTime DESC, sessionId DESC LIMIT :limit) ORDER BY startTime ASC, sessionId ASC")
+    suspend fun latestSessionsBetween(from: Long, to: Long, limit: Int): List<ChargeSession>
 
     /** Closed sessions of every type whose endpoint is in the inclusive analysis window. */
     @Query("SELECT * FROM charge_sessions WHERE endTime BETWEEN :from AND :to ORDER BY endTime, sessionId")

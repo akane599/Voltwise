@@ -80,6 +80,60 @@ class HistoryImportTest {
         }
     }
 
+    @Test fun allSessionExportAfterFullImportAndBoundaryKeepsNewestCapWithoutDeletingHistory() = runBlocking {
+        val file = File.createTempFile("history-session-cap", ".json", context.cacheDir)
+        try {
+            database().useDatabase { db ->
+                val manager = ExportImportManager(context, db, HistoryMaintenance())
+                val sessions = (1..HistoryLimits.MAX_SESSIONS).map { index ->
+                    ChargeSession("s%05d".format(index), SessionType.DISCHARGE, maxOf(2, index).toLong(),
+                        maxOf(2, index).toLong() + 1, null, null, null, null, null, activeKey = null)
+                }
+                assertEquals(HistoryLimits.MAX_SESSIONS, manager.importPayload(BatteryExport(sessions = sessions)).sessionsAdded)
+                val boundary = ChargeSession("native-boundary", SessionType.CHARGE, 10001, null,
+                    null, null, null, null, null, appCaptureStartMs = 10001)
+                db.sessionDao().insert(boundary)
+                val expected = sessions.drop(1).map { "import:${it.sessionId}" } + boundary.sessionId
+                val payload = manager.snapshot(0, 10001, false, true)
+                assertEquals("ALL snapshot keeps newest 10000 with deterministic cutoff tie", expected, payload.sessions.map { it.sessionId })
+                assertEquals(boundary, payload.sessions.last())
+                manager.exportJson(Uri.fromFile(file), 0, 10001, false, true)
+                val encoded = file.readText()
+                val exported = Json.parseToJsonElement(encoded).jsonObject.getValue("sessions").jsonArray
+                assertEquals(expected, exported.map { it.jsonObject.getValue("sessionId").jsonPrimitive.content })
+                assertFalse(encoded.contains("appCaptureStartMs"))
+                assertFalse(encoded.contains("appCaptureEndMs"))
+                try {
+                    manager.snapshot(1, 10001, false, true)
+                    fail("Explicit session range overflow must be rejected, not truncated")
+                } catch (error: IllegalArgumentException) {
+                    assertEquals("Use a smaller export date range", error.message)
+                }
+                assertEquals("Neither successful ALL nor rejected range export may delete history", 10001, db.sessionDao().count())
+                assertNotNull(db.sessionDao().byId("import:s00001"))
+            }
+        } finally { file.delete() }
+    }
+
+    @Test fun boundedSessionExportPreservesInclusiveOverlapAndEqualTimeOrdering() = runBlocking {
+        database().useDatabase { db ->
+            val dao = db.sessionDao()
+            fun row(id: String, start: Long, end: Long?, last: Long? = null) =
+                ChargeSession(id, SessionType.DISCHARGE, start, end, null, null, null, null, null,
+                    activeKey = null, lastSampleTime = last)
+            val rows = listOf(row("after", 201, 250), row("b", 200, 220), row("a", 200, 220),
+                row("ends-at-from", 50, 100), row("last-sample-at-from", 60, null, 100),
+                row("before", 10, 99), row("no-end", 150, null))
+            rows.forEach { dao.insert(it) }
+            val overlapping = listOf("ends-at-from", "last-sample-at-from", "no-end", "a", "b")
+            assertEquals(overlapping, dao.latestSessionsBetween(100, 200, HistoryLimits.MAX_SESSIONS).map { it.sessionId })
+            assertEquals(overlapping, dao.exportSessions(100, 200).map { it.sessionId })
+            val manager = ExportImportManager(context, db, HistoryMaintenance())
+            assertEquals(listOf("before") + overlapping, manager.snapshot(0, 200, false, true).sessions.map { it.sessionId })
+            assertEquals(7, dao.count())
+        }
+    }
+
     @Test fun ownExportPreservesTheLocalActiveSessionAndCanRestoreAPrunedPoint() = runBlocking {
         database().useDatabase { db ->
             val manager = ExportImportManager(context, db, HistoryMaintenance())

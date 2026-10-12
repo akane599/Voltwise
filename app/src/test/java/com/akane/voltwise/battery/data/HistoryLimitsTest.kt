@@ -1,5 +1,9 @@
 package com.akane.voltwise.battery.data
 
+import com.akane.voltwise.battery.data.db.ChargeSession
+import com.akane.voltwise.battery.data.db.SessionType
+import com.akane.voltwise.battery.insights.UnusedSessionDao
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -50,6 +54,55 @@ class HistoryLimitsTest {
 
     @Test fun reducingExistingExcessDoesNotBlockAnImport() {
         assertTrue(HistoryLimits.importWithinLimit(100_199, 100_198, HistoryLimits.MAX_SAMPLES))
+    }
+
+    @Test fun allSessionExportAfterFullImportAndBoundaryKeepsNewestCapWithoutDeletingHistory() = runTest {
+        val count = HistoryLimits.MAX_SESSIONS + 1
+        val stored = (1..count).map { index ->
+            exportSession("s%05d".format(index), maxOf(2, index).toLong())
+        }.reversed()
+        val dao = ExportSessionDao(stored)
+        val exported = dao.exportSessions(0, count.toLong())
+        assertEquals("ALL export must remain within its session cap before cleanup", HistoryLimits.MAX_SESSIONS, exported.size)
+        assertEquals(stored.asReversed().drop(1), exported)
+        assertEquals("Equal-time cutoff must retain the greater sessionId", "s00002", exported.first().sessionId)
+        assertEquals("Export must not trim stored sessions", count, dao.count())
+    }
+
+    @Test fun explicitSessionExportDoesNotSilentlyTruncateOverflow() = runTest {
+        val count = HistoryLimits.MAX_SESSIONS + 1
+        val dao = ExportSessionDao((1..count).map { exportSession("s$it", it.toLong()) })
+        // snapshot's existing cap check must reject this untruncated explicit selection.
+        assertEquals(count, dao.exportSessions(1, count.toLong()).size)
+        assertEquals(count, dao.count())
+    }
+
+    @Test fun sessionExportPreservesInclusiveOverlapAndChronologicalTies() = runTest {
+        val stored = listOf(
+            exportSession("later", 201), exportSession("b", 200), exportSession("a", 200),
+            exportSession("ends-at-from", 50).copy(endTime = 100),
+            exportSession("last-sample-at-from", 60).copy(endTime = null, lastSampleTime = 100),
+            exportSession("before", 10).copy(endTime = 99),
+            exportSession("no-end", 150).copy(endTime = null),
+        )
+        val dao = ExportSessionDao(stored)
+        assertEquals(listOf("ends-at-from", "last-sample-at-from", "no-end", "a", "b"),
+            dao.exportSessions(100, 200).map { it.sessionId })
+        assertEquals(listOf("before", "ends-at-from", "last-sample-at-from", "no-end", "a", "b"),
+            dao.exportSessions(0, 200).map { it.sessionId })
+        assertEquals(stored.size, dao.count())
+    }
+
+    private fun exportSession(id: String, start: Long) =
+        ChargeSession(id, SessionType.DISCHARGE, start, start + 1, null, null, null, null, null, activeKey = null)
+
+    private class ExportSessionDao(private val stored: List<ChargeSession>) : UnusedSessionDao() {
+        override suspend fun count(): Int = stored.size
+        override suspend fun sessionsBetween(from: Long, to: Long): List<ChargeSession> =
+            stored.filter { it.startTime <= to && (it.endTime ?: it.lastSampleTime ?: it.startTime) >= from }
+                .sortedWith(compareBy<ChargeSession> { it.startTime }.thenBy { it.sessionId })
+        override suspend fun latestSessionsBetween(from: Long, to: Long, limit: Int): List<ChargeSession> =
+            sessionsBetween(from, to).takeLast(limit)
     }
 
     private fun assertTrimHeadroom(target: Int, limit: Int) {
