@@ -10,10 +10,12 @@ esac
 batstats_serial="${ANDROID_SERIAL:-$(adb get-serialno)}"
 [[ "$batstats_serial" == emulator-* ]] || { echo 'Select a disposable emulator with ANDROID_SERIAL.' >&2; exit 1; }
 export ANDROID_SERIAL="$batstats_serial"
-[[ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" == 36 ]]
+batstats_api="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+[[ "$batstats_api" == 36 ]]
 batstats_hardware="$(adb shell getprop ro.hardware | tr -d '\r')"
 [[ "$batstats_hardware" == ranchu || "$batstats_hardware" == goldfish ]]
-[[ "$(adb shell getprop sys.boot_completed | tr -d '\r')" == 1 ]] || {
+batstats_boot_completed="$(adb shell getprop sys.boot_completed | tr -d '\r')"
+[[ "$batstats_boot_completed" == 1 ]] || {
   echo 'Android has not completed boot; no device tests were started.' >&2
   exit 1
 }

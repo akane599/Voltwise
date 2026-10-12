@@ -30,6 +30,7 @@ elif args[:2] == ['shell', 'getprop'] and len(args) == 3:
     defaults = {'ro.build.version.sdk': '36', 'ro.hardware': 'ranchu', 'sys.boot_completed': '1'}
     if args[2] not in defaults: refuse('unknown getprop')
     print(config.get(args[2], defaults[args[2]]))
+    sys.exit(config.get('getprop_exits', {}).get(args[2], 0))
 elif args == ['shell', 'getconf', 'PAGE_SIZE']: print(config.get('page', '4096'))
 elif args == ['shell', 'rm', '-rf', '/sdcard/Download/batstats-validation-screenshots']:
     if config.get('screenshot_cleanup_fail'): sys.exit(23)
@@ -246,13 +247,20 @@ class DevicePhasesTest(unittest.TestCase):
                     if not config.get('parser_fail'): self.assertEqual(['shizuku'], self.executions(calls))
 
     def test_guard_refusal_has_zero_mutations_even_cleanup(self):
-        for config in (dict(serial='physical'), dict(**{'ro.hardware': 'qcom'}), dict(**{'ro.build.version.sdk': '35'}),
-                       dict(**{'sys.boot_completed': '0'}), dict(page='8192'), dict(expected_page='16384'), dict(group='../escape')):
-            with self.subTest(config=config):
-                _, result, calls = self.run_phases(**config)
-                self.assertNotEqual(0, result.returncode)
-                self.assertEqual([], self.executions(calls))
-                self.assertTrue(all(call[1:3] in (['shell', 'getprop'], ['shell', 'getconf']) for call in calls), calls)
+        configs = [dict(serial='physical'), dict(**{'ro.hardware': 'qcom'}), dict(**{'ro.build.version.sdk': '35'}),
+                   dict(**{'sys.boot_completed': '0'}), dict(page='8192'), dict(expected_page='16384'), dict(group='../escape')]
+        # Valid stdout must not authorize mutation when the guard command failed.
+        configs += [dict(getprop_exits={prop: status}) for prop, status in
+                    (('ro.build.version.sdk', 17), ('sys.boot_completed', 18), ('ro.hardware', 19))]
+        for prebuilt in (False, True):
+            for config in configs:
+                with self.subTest(prebuilt=prebuilt, config=config):
+                    _, result, calls = self.run_phases(prebuilt, **config)
+                    self.assertNotEqual(0, result.returncode, f'executions={self.executions(calls)}')
+                    self.assertEqual([], self.executions(calls))
+                    self.assertTrue(all(call[1:3] in (['shell', 'getprop'], ['shell', 'getconf']) for call in calls), calls)
+                    if config.get('getprop_exits'):
+                        self.assertEqual(next(iter(config['getprop_exits'].values())), result.returncode)
 
     def test_setup_and_privileged_failures_cannot_be_hidden(self):
         for prebuilt in (False, True):
