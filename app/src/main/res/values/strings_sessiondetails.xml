@@ -78,7 +78,7 @@
     <string name="sessiondetails_apps_title">Apps</string>
     <string name="sessiondetails_apps_basis_delta">From unplug to plug-in</string>
     <string name="sessiondetails_apps_basis_reset">Since Android reset its stats, during this session</string>
-    <string name="sessiondetails_apps_basis_absolute">Since the last full charge (no reading at unplug)</string>
+    <string name="sessiondetails_apps_basis_absolute">Since the last full charge (no comparable reading at unplug)</string>
     <string name="sessiondetails_apps_so_far">So far · updated %1$s</string>
     <string name="sessiondetails_apps_others">Other apps</string>
     <string name="sessiondetails_apps_show_all">Show all</string>
