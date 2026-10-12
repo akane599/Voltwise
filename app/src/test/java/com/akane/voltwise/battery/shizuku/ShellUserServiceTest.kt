@@ -1,6 +1,8 @@
 package com.akane.voltwise.battery.shizuku
 
 import com.akane.voltwise.battery.actions.PrivilegedCommand
+import com.akane.voltwise.battery.apps.AppStatsRepository
+import com.akane.voltwise.battery.util.BatteryStatsBinaryOutput
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -29,6 +31,12 @@ class ShellUserServiceTest {
 
     @Test fun helperRejectsChargedCheckinDiagnostic() {
         assertFalse(ShellUserService.allows("dumpsys batterystats -c --charged"))
+    }
+
+    @Test fun helperAcceptsProductionBatteryStatsRead() {
+        assertEquals(BatteryStatsBinaryOutput.ARGV.joinToString(" "), BatteryStatsBinaryOutput.COMMAND)
+        assertEquals(AppStatsRepository.COMMAND, BatteryStatsBinaryOutput.COMMAND)
+        assertTrue(ShellUserService.allows(BatteryStatsBinaryOutput.COMMAND))
     }
 
     @Test fun helperRejectsBatteryDiagnostic() {

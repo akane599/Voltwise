@@ -10,6 +10,7 @@ import com.akane.voltwise.battery.BatteryGraph
 import com.akane.voltwise.battery.BatteryMainActivity
 import com.akane.voltwise.battery.apps.AppStatsRepository
 import com.akane.voltwise.battery.apps.AppStatsResult
+import com.akane.voltwise.battery.util.BatteryStatsBinaryOutput
 import com.akane.voltwise.battery.util.ShellRunner
 import com.akane.voltwise.test.DeviceEnvironment
 import com.akane.voltwise.test.RequiresShizuku
@@ -43,7 +44,7 @@ class ShizukuDeviceTest {
             assertEquals("Validate shell mode, not root", 2000, Shizuku.getUid())
             if (!bridge.hasPermission()) {
                 assertEquals(ShizukuBridge.Failure.NO_PERMISSION,
-                    (bridge.run("dumpsys battery") as ShizukuBridge.RunResult.Error).reason)
+                    (bridge.run(BatteryStatsBinaryOutput.COMMAND) as ShizukuBridge.RunResult.Error).reason)
                 scenario.onActivity { bridge.requestPermission() }
                 // The pinned official release obfuscates resource names, including button1.
                 // This disposable emulator uses English; still constrain to Shizuku's package.
@@ -57,14 +58,15 @@ class ShizukuDeviceTest {
             assertTrue(bridge.running.value)
             assertTrue(bridge.granted.value)
             assertEquals(ShellRunner.Mode.SHIZUKU, shell.detectMode(true))
-            val first = bridge.run("dumpsys battery")
+            val first = bridge.run(BatteryStatsBinaryOutput.COMMAND)
             assertTrue("Battery command failed: $first", first is ShizukuBridge.RunResult.Success)
-            assertTrue((first as ShizukuBridge.RunResult.Success).output.contains("level:"))
+            assertNotNull("Battery statistics must use the production binary envelope",
+                BatteryStatsBinaryOutput.decode((first as ShizukuBridge.RunResult.Success).output))
             val forbidden = bridge.run("id")
             assertTrue(forbidden is ShizukuBridge.RunResult.Error)
             assertEquals(ShizukuBridge.Failure.COMMAND, (forbidden as ShizukuBridge.RunResult.Error).reason)
             bridge.unbind() // Destroy and restart the real helper, with authorization retained.
-            assertTrue(bridge.run("dumpsys battery") is ShizukuBridge.RunResult.Success)
+            assertTrue(bridge.run(BatteryStatsBinaryOutput.COMMAND) is ShizukuBridge.RunResult.Success)
             val dump = appStats.snapshot(force = true)
             assertTrue("Android16 report must have a valid window", dump is AppStatsResult.Ready)
             assertNotNull(appStats.cached.value)
@@ -77,7 +79,7 @@ class ShizukuDeviceTest {
             stoppedServer = true
             await { !bridge.running.value && !bridge.granted.value }
             assertEquals(ShizukuBridge.Failure.NOT_RUNNING,
-                (bridge.run("dumpsys battery") as ShizukuBridge.RunResult.Error).reason)
+                (bridge.run(BatteryStatsBinaryOutput.COMMAND) as ShizukuBridge.RunResult.Error).reason)
             assertNotEquals(ShellRunner.Mode.SHIZUKU, shell.detectMode(true))
             val lost = appStats.snapshot(force = true)
             assertFalse("No stale SHIZUKU-sourced report once its source is gone",
@@ -91,7 +93,7 @@ class ShizukuDeviceTest {
             await { bridge.ping() && bridge.hasPermission() }
             stoppedServer = false
             assertEquals(ShellRunner.Mode.SHIZUKU, shell.detectMode(true))
-            assertTrue(bridge.run("dumpsys battery") is ShizukuBridge.RunResult.Success)
+            assertTrue(bridge.run(BatteryStatsBinaryOutput.COMMAND) is ShizukuBridge.RunResult.Success)
             assertTrue(appStats.snapshot(force = true) is AppStatsResult.Ready)
             assertNotNull(appStats.cached.value)
             DeviceEnvironment.screenshot("shizuku-reconnected")
